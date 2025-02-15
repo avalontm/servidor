@@ -3,10 +3,10 @@ import mysql.connector
 
 # Configuración de la base de datos
 DB_CONFIG = {
-    'host': 'localhost',
-    'user': 'root',  # Cambia esto según tu configuración
-    'password': '',  # Cambia esto según tu configuración
-    'database': 'test_db'  # Cambia esto según tu base de datos
+    'host': '192.168.100.7',
+    'user': 'avalontm',  # Cambia esto según tu configuración
+    'password': '5mtcgder',  # Cambia esto según tu configuración
+    'database': 'moshi'  # Cambia esto según tu base de datos
 }
 
 def get_db_connection():

@@ -13,14 +13,15 @@ def register():
     data = request.get_json()
     
     name = data.get('name')
+    last_name = data.get('last_name')
     email = data.get('email')
     password = data.get('password')
 
-    if not name or not email or not password:
+    if not name or not last_name or not email or not password:
         return jsonify({'status': False, "message": "Faltan parámetros"}), 400
 
     # Intentar crear el usuario
-    if create_user(email, password, name):
+    if create_user(email, password, name, last_name):
         return jsonify({'status': True, "message": "Usuario creado exitosamente"}), 201
     else:
         return jsonify({'status': False, "message": "El nombre de usuario ya está en uso o hubo un error al crear el usuario"}), 409

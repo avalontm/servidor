@@ -2,8 +2,9 @@
 from werkzeug.security import generate_password_hash, check_password_hash
 from utils.db_config import get_db_connection
 import mysql.connector
+from mysql.connector import Error
 
-def create_user(username, password, name):
+def create_user(email, password, name, last_name):
     """Crea un usuario con la contraseña hasheada y maneja errores de duplicados. Devuelve True si el usuario fue creado, False si hubo un error."""
     hashed_password = generate_password_hash(password)
     conn = get_db_connection()
@@ -11,7 +12,7 @@ def create_user(username, password, name):
 
     try:
         # Intentar insertar el nuevo usuario
-        cursor.execute("INSERT INTO users (email, password, name) VALUES (%s, %s, %s)", (username, hashed_password, name))
+        cursor.execute("INSERT INTO usuarios (email, contrasena, nombre, apellido) VALUES (%s, %s, %s, %s)", (email, hashed_password, name, last_name))
         conn.commit()
         return True  # Usuario creado exitosamente
     except mysql.connector.errors.IntegrityError as e:
@@ -20,7 +21,8 @@ def create_user(username, password, name):
             return False  # El nombre de usuario ya está en uso
         else:
             return False  # Otro tipo de error de integridad
-    except Exception:
+    except Error as e:
+        print(e)
         return False  # Cualquier otro error inesperado
     finally:
         # Cerrar la conexión y el cursor
@@ -31,11 +33,11 @@ def check_user_credentials(email, password):
     """Verifica las credenciales del usuario"""
     conn = get_db_connection()
     cursor = conn.cursor(dictionary=True)
-    cursor.execute("SELECT * FROM users WHERE email = %s", (email,))
+    cursor.execute("SELECT * FROM usaurios WHERE email = %s", (email,))
     user = cursor.fetchone()
     cursor.close()
     conn.close()
 
-    if user and check_password_hash(user['password'], password):
+    if user and check_password_hash(user['contrasena'], password):
         return user
     return None
