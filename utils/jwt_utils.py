@@ -4,17 +4,19 @@ import datetime
 from flask import jsonify, request
 from functools import wraps
 
-SECRET_KEY = 'mi_clave_secreta'  # Cambia esta clave por una más segura
+SECRET_KEY = 'b#$Q@^rgtd%$^e34%23$&^N524n8&2#$xq3%&C%^E&c'  # clave segura
 
 def generate_jwt_token(user_id, role):
     """Genera un token JWT"""
     expiration_time = datetime.datetime.utcnow() + datetime.timedelta(hours=1)
-    token = jwt.encode({
-        'user_id': user_id,  # ID del usuario
-        'role': role,        # Rol del usuario
-        'exp': expiration_time
-    }, SECRET_KEY, algorithm='HS256')
-    return token
+    token = jwt.encode(
+        {'user_id': user_id, 'role': role, 'exp': expiration_time},
+        SECRET_KEY,
+        algorithm='HS256'
+    )
+    return token  # PyJWT 2.x devuelve un string, no bytes
+
+
 
 def token_required(f):
     """Decora una ruta para requerir un token JWT válido"""

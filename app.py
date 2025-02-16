@@ -17,7 +17,7 @@ if conexion:
     print("Conexión a la base de datos exitosa.")
 else:
     sys.exit()
-     
+
 # Registrar los blueprints
 app.register_blueprint(users_bp, url_prefix='/api/user')
 app.register_blueprint(products_bp, url_prefix='/api/product')
@@ -26,4 +26,4 @@ app.register_blueprint(products_bp, url_prefix='/api/product')
 CORS(app)
 
 if __name__ == '__main__':
-    app.run(debug=True, host='0.0.0.0', port=8080)
+    app.run(debug=True, host='0.0.0.0', port=8081)

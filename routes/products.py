@@ -5,22 +5,10 @@
 # Fecha de última modificación: 2025-02-15
 # Descripción: API para gestionar productos en la base de datos.
 
-import mysql.connector
 from mysql.connector import Error
 from flask import Blueprint, jsonify
 
-def get_db_connection():
-    try:
-        connection = mysql.connector.connect(
-            host="tu_host",
-            user="tu_usuario",
-            password="tu_contraseña",
-            database="tu_base_de_datos"
-        )
-        return connection
-    except Error as e:
-        print(f"Error al conectar a la base de datos: {e}")
-        return None
+from utils.db_config import get_db_connection
 
 def query(sql, params=None, fetchall=False):
     connection = get_db_connection()
