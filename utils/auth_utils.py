@@ -33,7 +33,7 @@ def check_user_credentials(email, password):
     """Verifica las credenciales del usuario"""
     conn = get_db_connection()
     cursor = conn.cursor(dictionary=True)
-    cursor.execute("SELECT * FROM usaurios WHERE email = %s", (email,))
+    cursor.execute("SELECT * FROM usuarios WHERE email = %s", (email,))
     user = cursor.fetchone()
     cursor.close()
     conn.close()

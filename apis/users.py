@@ -32,13 +32,13 @@ def register():
 def login():
     data = request.get_json()
 
-    username = data.get('email')
+    email = data.get('email')
     password = data.get('password')
 
-    if not username or not password:
+    if not email or not password:
         return jsonify({'status': False, "message": "Faltan parámetros"}), 400
 
-    user = check_user_credentials(username, password)
+    user = check_user_credentials(email, password)
 
     if user:
         # Mapeo de role según el valor en la base de datos
@@ -47,7 +47,7 @@ def login():
         # Generar JWT
         token = generate_jwt_token(user['id'], role)
         
-        return jsonify({'status': True, "name": user['name'], "role": role, "avatar" : user['avatar'], "token": token})
+        return jsonify({'status': True, "name": user['nombre'], "role": role, "avatar" : user['avatar'], "token": token})
 
     return jsonify({'status': False, "message": "Usuario o contraseña incorrectos"}), 401
 
