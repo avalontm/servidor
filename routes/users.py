@@ -1,9 +1,15 @@
-# apis/users.py
+# routes/users.py
+# Proyecto: API de Productos
+# Desarrollado por: AvalonTM
+# Versión: 1.0.0
+# Fecha de última modificación: 2025-02-15
+# Descripción: API para gestionar usaurios en la base de datos.
+
+
 from flask import Blueprint, request, jsonify
 from utils.auth_utils import create_user, check_user_credentials
 from utils.jwt_utils import generate_jwt_token, token_required
 from utils.db_utils import get_user_name
-import mysql.connector
 
 users_bp = Blueprint('user', __name__)
 

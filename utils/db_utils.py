@@ -54,3 +54,27 @@ def get_user_name(user_id):
             connection.close()  # Cierra la conexión
     else:
         return None
+
+
+def query(sql, params=None, fetchall=False):
+    connection = get_db_connection()
+    if connection:
+        try:
+            cursor = connection.cursor(dictionary=True)
+            cursor.execute(sql, params)
+            if fetchall:
+                result = cursor.fetchall()
+                cursor.fetchall()  # Consumir resultados pendientes
+            else:
+                result = cursor.fetchone()
+                cursor.fetchall()  # Consumir resultados pendientes
+            return result
+        except Error as e:
+            print(f"Error al ejecutar la consulta: {e}")
+            return None
+        finally:
+            if cursor:
+                cursor.close()
+            if connection:
+                connection.close()
+    return None

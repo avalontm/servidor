@@ -5,8 +5,8 @@ from utils.db_utils import verify_db_connection
 import sys
 
 # Importar los blueprints
-from apis.users import users_bp
-from apis.products import products_bp
+from routes.users import users_bp
+from routes.products import products_bp
 
 app = Flask(__name__)
 
