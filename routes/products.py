@@ -199,7 +199,7 @@ def crear_producto(user_id):
             try:
                 img_data = base64.b64decode(imagen.split(',')[1])  # Eliminar el prefijo 'data:image/png;base64,' si existe
             except Exception as e:
-                return jsonify({"error": "Error al decodificar la imagen", "details": str(e)}), 400
+                img_data = None
 
             # Generar un nombre único para la imagen
             uuid_obj = uuid_module.UUID(uuid_producto)  # Convertir el string a UUID
@@ -211,8 +211,10 @@ def crear_producto(user_id):
             imagen_path = os.path.join(APP_PUBLIC, imagen_filename)
 
             # Guardar la imagen en el directorio
-            with open(imagen_path, 'wb') as f:
-                f.write(img_data)
+            if(img_data != None):
+                # Guardar la imagen en el directorio
+                with open(imagen_path, 'wb') as f:
+                    f.write(img_data)
 
             # Generar la URL para la imagen
             imagen_url = f"/assets/productos/{imagen_filename}"
@@ -268,9 +270,11 @@ def actualizar_producto(user_id, uuid):
         # Paso 2: Procesar la imagen si está presente
         imagen_url = None
         if imagen:
-          
-            # Decodificar la imagen base64
-            img_data = base64.b64decode(imagen.split(',')[1])  # Eliminar el prefijo 'data:image/png;base64,' si existe
+           # Decodificar la imagen base64
+            try:
+                img_data = base64.b64decode(imagen.split(',')[1])  # Eliminar el prefijo 'data:image/png;base64,' si existe
+            except Exception as e:
+                img_data = None
 
             # Generar un nombre único para la imagen
             uuid_obj = uuid_module.UUID(uuid)  # Convertir el string a UUID
@@ -279,9 +283,10 @@ def actualizar_producto(user_id, uuid):
             # Definir la ruta donde se guardará la imagen
             imagen_path = os.path.join(APP_PUBLIC, imagen_nombre)
 
-            # Guardar la imagen en el directorio
-            with open(imagen_path, 'wb') as f:
-                f.write(img_data)
+            if(img_data != None):
+                # Guardar la imagen en el directorio
+                with open(imagen_path, 'wb') as f:
+                    f.write(img_data)
 
             # Generar la URL para la imagen (ajusta esto según tu configuración)
             imagen_url = f"/assets/productos/{imagen_nombre}"
