@@ -7,6 +7,7 @@ import sys
 # Importar los blueprints
 from routes.users import users_bp
 from routes.products import products_bp
+from routes.category import category_bp
 
 app = Flask(__name__)
 
@@ -21,6 +22,7 @@ else:
 # Registrar los blueprints
 app.register_blueprint(users_bp, url_prefix='/api/user')
 app.register_blueprint(products_bp, url_prefix='/api/product')
+app.register_blueprint(category_bp, url_prefix='/api/category')
 
 # Aplica CORS a todas las rutas
 CORS(app)
