@@ -51,10 +51,10 @@ def obtener_productos():
     
     return jsonify(productos)
 
-@products_bp.route('/<string:identifier>', methods=['GET'])
+@products_bp.route('/<string:uuid>', methods=['GET'])
 def obtener_producto(identifier):
     """Obtiene un producto de la base de datos por su identificador."""
-    sql = "SELECT * FROM productos WHERE identifier=%s AND no_disponible=0"
+    sql = "SELECT * FROM productos WHERE uuid=%s AND no_disponible=0"
     producto = query(sql, (identifier,))
     
     if not producto:
