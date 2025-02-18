@@ -56,18 +56,22 @@ def get_user_name(user_id):
         return None
 
 
-def query(sql, params=None, fetchall=False):
+def query(sql, params=None, fetchall=False, commit=False):
     connection = get_db_connection()
     if connection:
         try:
             cursor = connection.cursor(dictionary=True)
             cursor.execute(sql, params)
+
+            if commit:
+                connection.commit()
+                return cursor.rowcount  # Devuelve la cantidad de filas afectadas
+
             if fetchall:
                 result = cursor.fetchall()
-                cursor.fetchall()  # Consumir resultados pendientes
             else:
                 result = cursor.fetchone()
-                cursor.fetchall()  # Consumir resultados pendientes
+
             return result
         except Error as e:
             print(f"Error al ejecutar la consulta: {e}")

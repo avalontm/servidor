@@ -9,6 +9,7 @@ from mysql.connector import Error
 from flask import Blueprint, jsonify, request
 from utils.db_utils import query
 from utils.jwt_utils import token_required
+import uuid
 
 products_bp = Blueprint("products", __name__)
 
@@ -28,16 +29,45 @@ def obtener_productos():
     
     return jsonify(productos)
 
-@products_bp.route('/<string:uuid>', methods=['GET'])
-def obtener_producto(identifier):
-    """Obtiene un producto de la base de datos por su identificador."""
-    sql = "SELECT * FROM productos WHERE uuid=%s AND no_disponible=0"
-    producto = query(sql, (identifier,))
-    
+# Ruta para obtener un producto por UUID
+@products_bp.route('/dashboard/<string:uuid>', methods=['GET'])
+@token_required  # Asegura que el token sea validado antes de acceder a esta ruta
+def dashboard_obtener_producto(user_id, uuid):
+    """Obtiene un producto específico de la base de datos por su uuid, incluyendo el uuid de la categoría."""
+    sql = """
+        SELECT p.*, c.uuid AS categoria_uuid
+        FROM productos p
+        LEFT JOIN categorias c ON p.categoria_id = c.id
+        WHERE p.uuid = %s AND p.no_disponible = 0
+    """
+    producto = query(sql, fetchall=False, params=(uuid,))
+
     if not producto:
         return jsonify({"error": "Producto no encontrado"}), 404
+
+    # Eliminamos los campos "id" y "categoria_id" si es necesario
+    producto = {key: value for key, value in producto.items() if key not in ["id", "categoria_id"]}
+
+    return jsonify(producto)
+     
+# Ruta para obtener un producto por UUID
+@products_bp.route('/<string:uuid>', methods=['GET'])
+def obtener_producto(uuid):
+    """Obtiene un producto de la base de datos por su identificador, incluyendo el uuid de la categoría."""
+    sql = """
+        SELECT p.*, c.uuid AS categoria_uuid
+        FROM productos p
+        LEFT JOIN categorias c ON p.categoria_id = c.id
+        WHERE p.uuid = %s AND p.no_disponible = 0
+    """
+    producto = query(sql, (uuid,))
+
+    if not producto:
+        return jsonify({"error": "Producto no encontrado"}), 404
+
+    # Formatear el resultado para excluir 'id' y 'categoria_id'
+    producto = {key: value for key, value in producto.items() if key not in ["id", "categoria_id"]}
     
-    producto = {key: value for key, value in producto.items() if key != "id"}
     return jsonify(producto)
 
 
@@ -59,18 +89,18 @@ def obtener_pagina_productos(user_id):
     if categoria_uuid:
         sql_categoria = "SELECT id FROM categorias WHERE uuid = %s"
         categoria_resultado = query(sql_categoria, params=(categoria_uuid,))
-        
+
         if categoria_resultado:
             categoria_id = categoria_resultado['id']
         else:
             return jsonify({"error": "Categoría no encontrada"}), 404  # Si no se encuentra la categoría
     
     # Construir la consulta SQL para los productos
-    sql = "SELECT * FROM productos WHERE no_disponible=0"
+    sql = "SELECT p.*, c.uuid AS categoria_uuid FROM productos p LEFT JOIN categorias c ON p.categoria_id = c.id WHERE p.no_disponible=0"
     
     # Si se pasó un id de categoría, agregar el filtro
     if categoria_id:
-        sql += " AND categoria_id = %s"
+        sql += " AND p.categoria_id = %s"
     
     # Agregar la paginación
     sql += " LIMIT %s OFFSET %s"
@@ -84,9 +114,9 @@ def obtener_pagina_productos(user_id):
         if not productos:
             return jsonify([])  # Si no hay productos, devolver una lista vacía
         
-        # Limpiar los productos para quitar el campo 'id' si existe
+        # Limpiar los productos para quitar el campo 'id' y 'categoria_id'
         productos = [
-            {key: value for key, value in producto.items() if key != "id"}
+            {key: value for key, value in producto.items() if key not in ["id", "categoria_id"]}
             for producto in productos
         ]
         
@@ -109,3 +139,105 @@ def obtener_pagina_productos(user_id):
     
     except Error as e:
         return jsonify({"error": str(e)}), 500
+
+@products_bp.route('/dashboard/crear', methods=['POST'])
+@token_required  # Asegura que el token sea validado antes de acceder a esta ruta
+def crear_producto(user_id):
+    """Crea un nuevo producto en la base de datos."""
+    try:
+        # Obtener los datos del producto enviados en la solicitud
+        data = request.get_json()
+
+        # Validar que los campos requeridos estén presentes
+        required_fields = ['nombre', 'descripcion', 'precio', 'cantidad', 'no_disponible', 'categoria_uuid']
+        for field in required_fields:
+            if field not in data:
+                return jsonify({"error": f"El campo {field} es requerido"}), 400
+
+        # Extraer los datos del cuerpo de la solicitud
+        nombre = data['nombre']
+        descripcion = data['descripcion']
+        precio = data['precio']
+        cantidad = data['cantidad']
+        no_disponible = data['no_disponible']
+        categoria_uuid = data['categoria_uuid']  # Usamos el UUID de la categoría en lugar del id directamente
+        imagen = data.get('imagen', None)  # Imagen es opcional
+
+        # Paso 1: Obtener la categoría por uuid
+        sql_categoria = "SELECT id FROM categorias WHERE uuid = %s"
+        categoria = query(sql_categoria, (categoria_uuid,))
+
+        if not categoria:
+            return jsonify({"error": "Categoría no encontrada"}), 404
+
+        categoria_id = categoria['id']  # Usar el id de la categoría encontrada
+
+        # Paso 2: Consulta SQL para insertar el nuevo producto
+        uuid_producto = str(uuid.uuid4())  # Generar un UUID único
+
+        sql_producto = """
+            INSERT INTO productos (uuid, nombre, descripcion, precio, cantidad, 
+                                no_disponible, categoria_id, imagen) 
+            VALUES (%s, %s, %s, %s, %s, %s, %s, %s)
+        """
+
+        producto = query(sql_producto, (uuid_producto, nombre, descripcion, precio, cantidad, no_disponible, categoria_id, imagen), commit=True)
+
+        print(producto)
+   
+        # Responder con éxito
+        return jsonify({"status": True, "message": "Producto creado con éxito"}), 201
+    
+    except Exception as e:
+        return jsonify({"error": "Error al crear el producto", "details": str(e)}), 500
+
+
+@products_bp.route('/dashboard/<string:uuid>', methods=['PUT'])
+@token_required  # Asegura que el token sea validado antes de acceder a esta ruta
+def actualizar_producto(user_id, uuid):
+    """Actualiza un producto en la base de datos."""
+    try:
+        # Obtener los datos del producto enviados en la solicitud
+        data = request.get_json()
+
+        # Validar que los campos requeridos estén presentes
+        required_fields = ['nombre', 'descripcion', 'precio', 'cantidad', 'no_disponible', 'categoria_uuid']
+        for field in required_fields:
+            if field not in data:
+                return jsonify({"error": f"El campo {field} es requerido"}), 400
+
+        # Extraer los datos del cuerpo de la solicitud
+        nombre = data['nombre']
+        descripcion = data['descripcion']
+        precio = data['precio']
+        cantidad = data['cantidad']
+        no_disponible = data['no_disponible']
+        categoria_uuid = data['categoria_uuid']  # Usamos el UUID de la categoría en lugar del id directamente
+        imagen = data.get('imagen', None)  # Imagen es opcional
+
+        # Paso 1: Obtener la categoría por uuid
+        sql_categoria = "SELECT id FROM categorias WHERE uuid = %s"
+        categoria = query(sql_categoria, (categoria_uuid,))
+
+        if not categoria:
+            return jsonify({"error": "Categoría no encontrada"}), 404
+
+        categoria_id = categoria['id']  # Usar el id de la categoría encontrada
+
+        # Paso 2: Consulta SQL para actualizar el producto
+        sql_producto = """
+            UPDATE productos 
+            SET nombre = %s, descripcion = %s, precio = %s, cantidad = %s, 
+                no_disponible = %s, categoria_id = %s, imagen = %s
+            WHERE uuid = %s
+        """
+
+        # Ejecutar la consulta para actualizar el producto
+        producto = query(sql_producto, (nombre, descripcion, precio, cantidad, no_disponible, categoria_id, imagen, uuid), commit=True)
+       
+        print(producto)
+        # Responder con éxito
+        return jsonify({"status": True, "message": "Producto actualizado con éxito"}), 200
+    
+    except Exception as e:
+        return jsonify({"error": "Error al actualizar el producto"}), 500

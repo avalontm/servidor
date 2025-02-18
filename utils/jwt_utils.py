@@ -8,7 +8,7 @@ SECRET_KEY = 'b#$Q@^rgtd%$^e34%23$&^N524n8&2#$xq3%&C%^E&c'  # clave segura
 
 def generate_jwt_token(user_id, role):
     """Genera un token JWT"""
-    expiration_time = datetime.datetime.utcnow() + datetime.timedelta(hours=1)
+    expiration_time = datetime.datetime.utcnow() + datetime.timedelta(hours=24)
     token = jwt.encode(
         {'user_id': user_id, 'role': role, 'exp': expiration_time},
         SECRET_KEY,
