@@ -11,10 +11,10 @@ from utils.auth_utils import create_user, check_user_credentials
 from utils.jwt_utils import generate_jwt_token, token_required
 from utils.db_utils import get_user_name
 
-users_bp = Blueprint('user', __name__)
+user_bp = Blueprint('usuario', __name__)
 
 # Ruta para registrar un nuevo usuario
-@users_bp.route('/register', methods=['POST'])
+@user_bp.route('/registrar', methods=['POST'])
 def register():
     data = request.get_json()
     
@@ -34,7 +34,7 @@ def register():
 
 
 # Ruta para login y obtener el JWT
-@users_bp.route('/login', methods=['POST'])
+@user_bp.route('/login', methods=['POST'])
 def login():
     data = request.get_json()
 
@@ -58,7 +58,7 @@ def login():
     return jsonify({'status': False, "message": "Usuario o contraseña incorrectos"}), 401
 
 # Ruta protegida que requiere autenticación JWT
-@users_bp.route('/protected', methods=['GET'])
+@user_bp.route('/info', methods=['GET'])
 @token_required  # Asegura que el token sea validado antes de acceder a esta ruta
 def protected(user_id):
     user_name = get_user_name(user_id)

@@ -56,7 +56,7 @@ def get_user_name(user_id):
         return None
 
 
-def query(sql, params=None, fetchall=False, commit=False):
+def query(sql, params=None, fetchall=False, commit=False, return_cursor=False):
     connection = get_db_connection()
     if connection:
         try:
@@ -65,6 +65,8 @@ def query(sql, params=None, fetchall=False, commit=False):
 
             if commit:
                 connection.commit()
+                if return_cursor:
+                    return cursor  # Devuelve el cursor para verificar rowcount
                 return cursor.rowcount  # Devuelve la cantidad de filas afectadas
 
             if fetchall:
@@ -77,7 +79,7 @@ def query(sql, params=None, fetchall=False, commit=False):
             print(f"Error al ejecutar la consulta: {e}")
             return None
         finally:
-            if cursor:
+            if not return_cursor and cursor:
                 cursor.close()
             if connection:
                 connection.close()

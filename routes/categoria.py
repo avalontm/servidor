@@ -5,7 +5,7 @@ from flask import Blueprint, jsonify, request
 from utils.db_utils import query
 from utils.jwt_utils import token_required
 
-category_bp = Blueprint("category", __name__)
+category_bp = Blueprint("categoria", __name__)
 
 @category_bp.route('/listar', methods=['GET'])
 @token_required  # Asegura que el token sea validado antes de acceder a esta ruta

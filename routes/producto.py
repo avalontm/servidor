@@ -20,13 +20,13 @@ from utils.app_config import APP_PUBLIC, APP_SITE
 # Definimos el directorio donde guardar las imágenes
 ALLOWED_EXTENSIONS = {'png', 'jpg', 'jpeg', 'gif'}
 
-products_bp = Blueprint("products", __name__)
+product_bp = Blueprint("producto", __name__)
 
 # Función para verificar si el archivo tiene una extensión permitida
 def allowed_file(filename):
     return '.' in filename and filename.rsplit('.', 1)[1].lower() in ALLOWED_EXTENSIONS
 
-@products_bp.route('/listar', methods=['GET'])
+@product_bp.route('/listar', methods=['GET'])
 def obtener_productos():
     """Obtiene todos los productos de la base de datos."""
     sql = "SELECT * FROM productos WHERE no_disponible=0"
@@ -43,14 +43,15 @@ def obtener_productos():
     return jsonify(productos)
 
 # Ruta para obtener un producto por UUID
-@products_bp.route('/dashboard/<string:uuid>', methods=['GET'])
+@product_bp.route('/panel/<string:uuid>', methods=['GET'])
 @token_required  # Asegura que el token sea validado antes de acceder a esta ruta
 def dashboard_obtener_producto(user_id, uuid):
-    """Obtiene un producto específico de la base de datos por su uuid, incluyendo el uuid de la categoría."""
+    """Obtiene un producto específico de la base de datos por su uuid, incluyendo el uuid de la categoría e inversionistas asociados."""
     sql = """
-        SELECT p.*, c.uuid AS categoria_uuid
+        SELECT p.*, c.uuid AS categoria_uuid, i.uuid AS inversionista_uuid
         FROM productos p
         LEFT JOIN categorias c ON p.categoria_id = c.id
+        LEFT JOIN inversionistas i ON p.inversionista_id = i.id
         WHERE p.uuid = %s AND p.no_disponible = 0
     """
     producto = query(sql, fetchall=False, params=(uuid,))
@@ -58,13 +59,14 @@ def dashboard_obtener_producto(user_id, uuid):
     if not producto:
         return jsonify({"error": "Producto no encontrado"}), 404
 
-    # Eliminamos los campos "id" y "categoria_id" si es necesario
-    producto = {key: value for key, value in producto.items() if key not in ["id", "categoria_id"]}
+    # Eliminamos campos no deseados
+    producto = {key: value for key, value in producto.items() if key not in ["id", "categoria_id", "inversionista_id"]}
 
     return jsonify(producto)
+
      
 # Ruta para obtener un producto por UUID
-@products_bp.route('/<string:uuid>', methods=['GET'])
+@product_bp.route('/<string:uuid>', methods=['GET'])
 def obtener_producto(uuid):
     """Obtiene un producto de la base de datos por su identificador, incluyendo el uuid de la categoría."""
     sql = """
@@ -84,7 +86,7 @@ def obtener_producto(uuid):
     return jsonify(producto)
 
 
-@products_bp.route('/dashboard/pagina', methods=['GET'])
+@product_bp.route('/panel/pagina', methods=['GET'])
 @token_required  # Asegura que el token sea validado antes de acceder a esta ruta
 def obtener_pagina_productos(user_id):
     """Obtiene los productos de la base de datos con paginación y filtrado por categoría."""
@@ -157,7 +159,7 @@ def obtener_pagina_productos(user_id):
     except Error as e:
         return jsonify({"error": str(e)}), 500
 
-@products_bp.route('/dashboard/crear', methods=['POST'])
+@product_bp.route('/panel/crear', methods=['POST'])
 @token_required  # Asegura que el token sea validado antes de acceder a esta ruta
 def crear_producto(user_id):
     """Crea un nuevo producto en la base de datos."""
@@ -166,18 +168,20 @@ def crear_producto(user_id):
         data = request.get_json()
 
         # Validar que los campos requeridos estén presentes
-        required_fields = ['nombre', 'descripcion', 'precio', 'cantidad', 'no_disponible', 'categoria_uuid']
+        required_fields = ['sku', 'nombre', 'descripcion', 'precio', 'cantidad', 'no_disponible', 'categoria_uuid', 'inversionista_uuid']
         for field in required_fields:
             if field not in data:
                 return jsonify({"error": f"El campo {field} es requerido"}), 400
 
         # Extraer los datos del cuerpo de la solicitud
+        sku = data['sku']
         nombre = data['nombre']
         descripcion = data['descripcion']
         precio = data['precio']
         cantidad = data['cantidad']
         no_disponible = data['no_disponible']
-        categoria_uuid = data['categoria_uuid']  # Usamos el UUID de la categoría en lugar del id directamente
+        categoria_uuid = data['categoria_uuid']  # Usamos el UUID 
+        inversionista_uuid = data['inversionista_uuid']  # Usamos el UUID
         imagen = data.get('imagen', None)  # Imagen es opcional (base64)
 
         # Paso 1: Obtener la categoría por uuid
@@ -189,10 +193,19 @@ def crear_producto(user_id):
 
         categoria_id = categoria['id']  # Usar el id de la categoría encontrada
 
-        # Paso 1: generamos el uuid
+        # Paso 2: Obtener el inversionista por uuid
+        sql_inversionista = "SELECT id FROM inversionistas WHERE uuid = %s"
+        inversionista = query(sql_inversionista, (inversionista_uuid,))
+
+        if not inversionista:
+            return jsonify({"error": "Inversionista no encontrada"}), 404
+
+        inversionista_id = inversionista['id']  # Usar el id del inversionista encontrado
+        
+        # Paso 3: generamos el uuid
         uuid_producto = str(uuid_module.uuid4())  # Generar un UUID único
         
-        # Paso 2: Procesar la imagen si está presente
+        # Paso 4: Procesar la imagen si está presente
         imagen_url = None
         if imagen:
             # Decodificar la imagen base64
@@ -219,14 +232,14 @@ def crear_producto(user_id):
             # Generar la URL para la imagen
             imagen_url = f"/assets/productos/{imagen_filename}"
 
-        # Paso 3: Consulta SQL para insertar el nuevo producto
+        # Paso 5: Consulta SQL para insertar el nuevo producto
         sql_producto = """
-            INSERT INTO productos (uuid, nombre, descripcion, precio, cantidad, 
-                                no_disponible, categoria_id, imagen) 
-            VALUES (%s, %s, %s, %s, %s, %s, %s, %s)
+            INSERT INTO productos (uuid, sku, nombre, descripcion, precio, cantidad, 
+                                no_disponible, categoria_id, inversionista_id, imagen) 
+            VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
         """
 
-        query(sql_producto, (uuid_producto, nombre, descripcion, precio, cantidad, no_disponible, categoria_id, imagen_url), commit=True)
+        query(sql_producto, (uuid_producto, sku, nombre, descripcion, precio, cantidad, no_disponible, categoria_id, inversionista_id, imagen_url), commit=True)
 
         # Responder con éxito
         return jsonify({"status": True, "message": "Producto creado con éxito"}), 201
@@ -235,83 +248,91 @@ def crear_producto(user_id):
         return jsonify({"error": "Error al crear el producto", "details": str(e)}), 500
 
 
-@products_bp.route('/dashboard/<string:uuid>', methods=['PUT'])
-@token_required  # Asegura que el token sea validado antes de acceder a esta ruta
+@product_bp.route('/panel/<string:uuid>', methods=['PUT'])
+@token_required  
 def actualizar_producto(user_id, uuid):
     """Actualiza un producto en la base de datos."""
     try:
-        # Obtener los datos del producto enviados en la solicitud
         data = request.get_json()
 
         # Validar que los campos requeridos estén presentes
-        required_fields = ['nombre', 'descripcion', 'precio', 'cantidad', 'no_disponible', 'categoria_uuid']
+        required_fields = ['nombre', 'sku', 'descripcion', 'precio', 'cantidad', 'no_disponible', 'categoria_uuid', 'inversionista_uuid', 'imagen']
         for field in required_fields:
             if field not in data:
                 return jsonify({"error": f"El campo {field} es requerido"}), 400
 
-        # Extraer los datos del cuerpo de la solicitud
+        # Extraer datos
+        sku = data['sku']
         nombre = data['nombre']
         descripcion = data['descripcion']
         precio = data['precio']
         cantidad = data['cantidad']
         no_disponible = data['no_disponible']
-        categoria_uuid = data['categoria_uuid']  # Usamos el UUID de la categoría en lugar del id directamente
-        imagen = data.get('imagen', None)  # Imagen es opcional
+        categoria_uuid = data['categoria_uuid']
+        inversionista_uuid = data['inversionista_uuid']
+        imagen = data.get('imagen', None)  
 
-        # Paso 1: Obtener la categoría por uuid
+        # Obtener IDs de categoría e inversionista
         sql_categoria = "SELECT id FROM categorias WHERE uuid = %s"
         categoria = query(sql_categoria, (categoria_uuid,))
-
         if not categoria:
             return jsonify({"error": "Categoría no encontrada"}), 404
 
-        categoria_id = categoria['id']  # Usar el id de la categoría encontrada
+        sql_inversionista = "SELECT id FROM inversionistas WHERE uuid = %s"
+        inversionista = query(sql_inversionista, (inversionista_uuid,))
+        if not inversionista:
+            return jsonify({"error": "Inversionista no encontrada"}), 404
 
-        # Paso 2: Procesar la imagen si está presente
+        categoria_id = categoria['id']
+        inversionista_id = inversionista['id']
+        
+        # Procesar la imagen si está presente
         imagen_url = None
-        if imagen:
-           # Decodificar la imagen base64
+        # Procesar la imagen solo si no está vacía y tiene el formato correcto
+        if imagen and "," in imagen:
             try:
-                img_data = base64.b64decode(imagen.split(',')[1])  # Eliminar el prefijo 'data:image/png;base64,' si existe
-            except Exception as e:
-                img_data = None
+                img_data = base64.b64decode(imagen.split(',')[1])  # Decodifica solo si tiene ","
+                uuid_obj = uuid_module.UUID(uuid)
+                imagen_nombre = f"{uuid_obj.hex}.png"
+                imagen_path = os.path.join(APP_PUBLIC, imagen_nombre)
 
-            # Generar un nombre único para la imagen
-            uuid_obj = uuid_module.UUID(uuid)  # Convertir el string a UUID
-            imagen_nombre = f"{uuid_obj.hex}.png"  # Puedes cambiar la extensión según el tipo de imagen
-
-            # Definir la ruta donde se guardará la imagen
-            imagen_path = os.path.join(APP_PUBLIC, imagen_nombre)
-
-            if(img_data != None):
-                # Guardar la imagen en el directorio
                 with open(imagen_path, 'wb') as f:
                     f.write(img_data)
 
-            # Generar la URL para la imagen (ajusta esto según tu configuración)
-            imagen_url = f"/assets/productos/{imagen_nombre}"
-            
-        # Paso 3: Consulta SQL para actualizar el producto
+                imagen_url = f"/assets/productos/{imagen_nombre}"
+            except Exception as e:
+                print("Error al procesar la imagen:", e)
+                imagen_url = None  # No actualizar la imagen si hay error
+        else:
+            imagen_url = None  # No modificar si no se envió una nueva imagen
+
+        # SQL para actualizar producto (omite la imagen si no se actualizó)
         sql_producto = """
             UPDATE productos 
-            SET nombre = %s, descripcion = %s, precio = %s, cantidad = %s, 
-                no_disponible = %s, categoria_id = %s, imagen = %s
-            WHERE uuid = %s
-        """
+            SET sku = %s, nombre = %s, descripcion = %s, precio = %s, cantidad = %s, 
+                no_disponible = %s, categoria_id = %s, inversionista_id = %s
+            """ + (", imagen = %s" if imagen_url else "") + " WHERE uuid = %s"
 
-        # Ejecutar la consulta para actualizar el producto
-        producto = query(sql_producto, (nombre, descripcion, precio, cantidad, no_disponible, categoria_id, imagen_url, uuid), commit=True)
-       
-        print(producto)
-        # Responder con éxito
+        # Parámetros (excluye la imagen si no se actualizó)
+        params = [sku, nombre, descripcion, precio, cantidad, no_disponible, categoria_id, inversionista_id]
+        if imagen_url:
+            params.append(imagen_url)
+        params.append(uuid)
+
+        cursor = query(sql_producto, tuple(params), commit=True, return_cursor=True)
+
+        if cursor.rowcount == 0:
+            return jsonify({"status": False, "message": "No se encontró el producto o no se realizaron cambios"}), 404
+
         return jsonify({"status": True, "message": "Producto actualizado con éxito"}), 200
-    
+
+
     except Exception as e:
         print(e)
         return jsonify({"error": "Error al actualizar el producto"}), 500
 
 
-@products_bp.route('/dashboard/<string:uuid>', methods=['DELETE'])
+@product_bp.route('/panel/<string:uuid>', methods=['DELETE'])
 @token_required  # Asegura que el token sea validado antes de acceder a esta ruta
 def eliminar_producto(user_id, uuid):
     """Elimina un producto de la base de datos por su UUID."""
