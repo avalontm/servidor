@@ -198,7 +198,7 @@ def crear_producto(user_id):
         inversionista = query(sql_inversionista, (inversionista_uuid,))
 
         if not inversionista:
-            return jsonify({"error": "Inversionista no encontrada"}), 404
+            return jsonify({"error": "Inversionista no encontrado"}), 404
 
         inversionista_id = inversionista['id']  # Usar el id del inversionista encontrado
         
@@ -207,7 +207,7 @@ def crear_producto(user_id):
         
         # Paso 4: Procesar la imagen si está presente
         imagen_url = None
-        if imagen:
+        if imagen and "," in imagen:
             # Decodificar la imagen base64
             try:
                 img_data = base64.b64decode(imagen.split(',')[1])  # Eliminar el prefijo 'data:image/png;base64,' si existe
@@ -224,7 +224,7 @@ def crear_producto(user_id):
             imagen_path = os.path.join(APP_PUBLIC, imagen_filename)
 
             # Guardar la imagen en el directorio
-            if(img_data != None):
+            if img_data:
                 # Guardar la imagen en el directorio
                 with open(imagen_path, 'wb') as f:
                     f.write(img_data)
@@ -239,13 +239,18 @@ def crear_producto(user_id):
             VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
         """
 
-        query(sql_producto, (uuid_producto, sku, nombre, descripcion, precio, cantidad, no_disponible, categoria_id, inversionista_id, imagen_url), commit=True)
+        # Intentamos ejecutar la consulta SQL de inserción
+        rows_affected = query(sql_producto, (uuid_producto, sku, nombre, descripcion, precio, cantidad, no_disponible, categoria_id, inversionista_id, imagen_url), commit=True)
 
-        # Responder con éxito
-        return jsonify({"status": True, "message": "Producto creado con éxito"}), 201
+        # Verificar si la inserción fue exitosa (al menos una fila debe haber sido afectada)
+        if rows_affected and rows_affected > 0:
+            return jsonify({"status": True, "message": "Producto creado con éxito"}), 201
+        else:
+            return jsonify({"status": False, "message": "No se pudo insertar el producto"}), 500
 
     except Exception as e:
         return jsonify({"error": "Error al crear el producto", "details": str(e)}), 500
+
 
 
 @product_bp.route('/panel/<string:uuid>', methods=['PUT'])

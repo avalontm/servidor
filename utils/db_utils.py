@@ -67,7 +67,7 @@ def query(sql, params=None, fetchall=False, commit=False, return_cursor=False):
                 connection.commit()
                 if return_cursor:
                     return cursor  # Devuelve el cursor para verificar rowcount
-                return cursor.rowcount  # Devuelve la cantidad de filas afectadas
+                return cursor.rowcount if cursor.rowcount is not None else 0  # Asegura que no sea None
 
             if fetchall:
                 result = cursor.fetchall()
