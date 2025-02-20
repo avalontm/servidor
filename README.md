@@ -71,3 +71,37 @@ Si deseas contribuir, por favor crea un fork del repositorio y envía un pull re
 ## Contacto
 Para más información, visita [avalontm.info](http://avalontm.info) o contacta al equipo de desarrollo.
 
+
+## Configurar el Linux
+
+```
+sudo nano /etc/systemd/system/start_api.service
+```
+
+```
+[Unit]
+Description=Servicio para ejecutar start_app al iniciar
+After=network.target
+
+[Service]
+WorkingDirectory=/home/avalontm/ftp/server
+ExecStart=/bin/bash /home/avalontm/ftp/server/start_app.sh
+Restart=always
+User=root
+Group=root
+
+[Install]
+WantedBy=multi-user.target
+```
+
+```
+sudo systemctl daemon-reload
+```
+
+```
+sudo systemctl enable start_api.service
+```
+
+```
+sudo systemctl start start_api.service
+```
