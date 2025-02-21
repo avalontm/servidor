@@ -20,7 +20,10 @@
 </head>
 <body>
     <h1>{{ producto.nombre }}</h1>
-    <p>{{ producto.descripcion }}</p>
+    <div>
+        {{ producto.descripcion | safe }}
+    </div>
+    <p>Precio: ${{ producto.precio }}</p>
     <img src="https://avalontm.info/{{ producto.imagen }}" alt="{{ producto.nombre }}" width="300">
 </body>
 </html>
