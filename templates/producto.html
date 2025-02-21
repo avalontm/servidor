@@ -1,0 +1,26 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>{{ producto.nombre }}</title>
+
+    <!-- Metadatos OpenGraph para Facebook y WhatsApp -->
+    <meta property="og:title" content="{{ producto.nombre }}" />
+    <meta property="og:description" content="{{ producto.descripcion }}" />
+    <meta property="og:image" content="{{ producto.imagen }}" />
+    <meta property="og:url" content="https://avalontm.info/producto/{{ producto.uuid }}" />
+    <meta property="og:type" content="product" />
+
+    <!-- Metadatos Twitter Card -->
+    <meta name="twitter:card" content="summary_large_image" />
+    <meta name="twitter:title" content="{{ producto.nombre }}" />
+    <meta name="twitter:description" content="{{ producto.descripcion }}" />
+    <meta name="twitter:image" content="https://avalontm.info/{{ producto.imagen }}" />
+</head>
+<body>
+    <h1>{{ producto.nombre }}</h1>
+    <p>{{ producto.descripcion }}</p>
+    <img src="https://avalontm.info/{{ producto.imagen }}" alt="{{ producto.nombre }}" width="300">
+</body>
+</html>

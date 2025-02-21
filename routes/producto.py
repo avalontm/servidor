@@ -10,7 +10,7 @@ import os
 import base64
 
 from mysql.connector import Error
-from flask import Blueprint, jsonify, request
+from flask import Blueprint, jsonify, render_template, request
 from utils.db_utils import query
 from utils.jwt_utils import token_required
 from flask import jsonify, request
@@ -69,6 +69,7 @@ def dashboard_obtener_producto(user_id, uuid):
 @product_bp.route('/<string:uuid>', methods=['GET'])
 def obtener_producto(uuid):
     """Obtiene un producto de la base de datos por su identificador, incluyendo el uuid de la categoría."""
+    
     sql = """
         SELECT p.*, c.uuid AS categoria_uuid
         FROM productos p
@@ -82,8 +83,32 @@ def obtener_producto(uuid):
 
     # Formatear el resultado para excluir 'id' y 'categoria_id'
     producto = {key: value for key, value in producto.items() if key not in ["id", "categoria_id"]}
-    
+
+    # Detectar si el usuario es un bot de redes sociales
+    user_agent = request.headers.get('User-Agent', '').lower()
+    if any(bot in user_agent for bot in ["twitterbot", "facebookexternalhit", "whatsapp", "slackbot"]):
+        return render_template("producto.html", producto=producto)
+
+    # Respuesta normal en JSON para el frontend React
     return jsonify(producto)
+
+# Ruta para renderizar el producto como HTML si es un bot
+@product_bp.route('/render/<string:uuid>', methods=['GET'])
+def renderizar_producto(uuid):
+    """Renderiza un producto como HTML estático con meta tags para redes sociales."""
+
+    sql = """
+        SELECT p.*, c.uuid AS categoria_uuid
+        FROM productos p
+        LEFT JOIN categorias c ON p.categoria_id = c.id
+        WHERE p.uuid = %s AND p.no_disponible = 0
+    """
+    producto = query(sql, (uuid,))
+
+    if not producto:
+        return "<html><head><meta name='robots' content='noindex'></head><body>Producto no encontrado</body></html>", 404
+
+    return render_template("producto.html", producto=producto)
 
 
 @product_bp.route('/panel/pagina', methods=['GET'])

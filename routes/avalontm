@@ -1,0 +1,45 @@
+# Redirigir HTTP a HTTPS
+server {
+    listen 80;
+    listen [::]:80;
+    server_name avalontm.info www.avalontm.info 192.206.141.160;
+
+    # Redirección de HTTP a HTTPS
+    return 301 https://$host$request_uri;
+}
+
+# Configuración para HTTPS (SSL)
+server {
+    listen 443 ssl;
+    listen [::]:443 ssl;
+    server_name avalontm.info www.avalontm.info 192.206.141.160;
+
+    # Certificados SSL generados por Certbot
+    ssl_certificate /etc/letsencrypt/live/avalontm.info/fullchain.pem; # managed by Certbot
+    ssl_certificate_key /etc/letsencrypt/live/avalontm.info/privkey.pem; # managed by Certbot
+    include /etc/letsencrypt/options-ssl-nginx.conf; # managed by Certbot
+    ssl_dhparam /etc/letsencrypt/ssl-dhparams.pem; # managed by Certbot
+
+    # Directorio raíz para la aplicación React
+    root /home/avalontm/ftp/site;  # Asegúrate de que esta ruta apunte al directorio correcto
+    index index.html;
+
+    # Manejo de rutas de React Router
+    location / {
+        try_files $uri $uri/ /index.html;  # Importante para React Router
+    }
+
+    # Error page para manejar las rutas 404 de React Router
+    error_page 404 /index.html;  # Para manejar las rutas de React Router
+
+    # Configuración de proxy si usas un servidor como `serve` para React
+    # Si no usas `serve`, puedes omitir esta parte
+    location /api/ {
+        proxy_pass http://127.0.0.1:8081;
+        proxy_set_header Host $host;
+        proxy_set_header X-Real-IP $remote_addr;
+        proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+        proxy_set_header X-Forwarded-Proto $scheme;
+    }
+}
+

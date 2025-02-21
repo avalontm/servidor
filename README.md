@@ -105,3 +105,7 @@ sudo systemctl enable start_api.service
 ```
 sudo systemctl start start_api.service
 ```
+
+```
+sudo systemctl restart start_api.service
+```
