@@ -1,7 +1,9 @@
 # db_utils.py
 import mysql.connector
-from mysql.connector import Error
+from mysql.connector import Error, IntegrityError, DataError, DatabaseError, OperationalError, ProgrammingError, InterfaceError, InternalError, NotSupportedError
 from utils.db_config import DB_CONFIG  # Importa la configuración desde db_config.py
+
+error_message = None  # Variable para almacenar el error
 
 # Función para verificar la conexión a la base de datos
 def verify_db_connection():
@@ -55,9 +57,40 @@ def get_user_name(user_id):
     else:
         return None
 
-
-def query(sql, params=None, fetchall=False, commit=False, return_cursor=False):
+def get_user_access(user_id):
+    """Obtiene el nivel de acceso del usuario desde la base de datos por su ID y devuelve 'admin' o 'user'."""
     connection = get_db_connection()
+    
+    if connection:
+        try:
+            cursor = connection.cursor(dictionary=True)
+            # Consulta para obtener el rol del usuario
+            query = "SELECT role FROM usuarios WHERE id = %s AND eliminado=0"
+            cursor.execute(query, (user_id,))
+            result = cursor.fetchone()  # Obtener el primer resultado
+            
+            if result and 'role' in result:
+                return "admin" if int(result['role']) == 99 else "user"
+            else:
+                return "user"  # Si el usuario no existe, es tratado como usuario normal
+
+        except Error as e:
+            print(f"Error al ejecutar la consulta: {e}")
+            return "user"  # En caso de error, se considera usuario normal
+        
+        finally:
+            cursor.close()
+            connection.close()
+
+    return "user"  # Si no hay conexión, se considera usuario normal
+
+    
+def query(sql, params=None, fetchall=False, commit=False, return_cursor=False):
+    global error_message  # Declaramos que vamos a modificar la variable global
+    error_message = None  # Reiniciamos el mensaje de error
+    
+    connection = get_db_connection()
+
     if connection:
         try:
             cursor = connection.cursor(dictionary=True)
@@ -75,12 +108,30 @@ def query(sql, params=None, fetchall=False, commit=False, return_cursor=False):
                 result = cursor.fetchone()
 
             return result
-        except Error as e:
-            print(f"Error al ejecutar la consulta: {e}")
-            return None
+         # ERRORES CLASIFICADOS
+        except IntegrityError as e:
+            error_message = f"IntegrityError: {e}"
+        except DataError as e:
+            error_message = f"DataError: {e}"
+        except DatabaseError as e:
+            error_message = f"DatabaseError: {e}"
+        except OperationalError as e:
+            error_message = f"OperationalError: {e}"
+        except ProgrammingError as e:
+            error_message = f"ProgrammingError: {e}"
+        except InterfaceError as e:
+            error_message = f"InterfaceError: {e}"
+        except InternalError as e:
+            error_message = f"InternalError: {e}"
+        except NotSupportedError as e:
+            error_message = f"NotSupportedError: {e}"
+        except Exception as e:
+            error_message = f"UnknownError: {e}"  # Cualquier otro error inesperado
+        
         finally:
             if not return_cursor and cursor:
                 cursor.close()
             if connection:
                 connection.close()
-    return None
+
+    return None  # Devuelve `None` si hubo un error

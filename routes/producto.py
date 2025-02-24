@@ -9,13 +9,16 @@ import uuid as uuid_module
 import os
 import base64
 
+import mysql
 from mysql.connector import Error
 from flask import Blueprint, jsonify, render_template, request
-from utils.db_utils import query
+import mysql.connector
+from utils.db_utils import get_user_access, query
 from utils.jwt_utils import token_required
 from flask import jsonify, request
 from werkzeug.utils import secure_filename
 from utils.app_config import APP_PUBLIC, APP_SITE
+from utils.db_utils import error_message
 
 # Definimos el directorio donde guardar las imágenes
 ALLOWED_EXTENSIONS = {'png', 'jpg', 'jpeg', 'gif'}
@@ -28,19 +31,41 @@ def allowed_file(filename):
 
 @product_bp.route('/listar', methods=['GET'])
 def obtener_productos():
-    """Obtiene todos los productos de la base de datos."""
-    sql = "SELECT * FROM productos WHERE no_disponible=0"
-    productos = query(sql, fetchall=True)
-    
-    if not productos:
-        return jsonify([])
-    
+    """Obtiene productos paginados de la base de datos."""
+
+    # Obtener parámetros de paginación desde la URL
+    try:
+        page = int(request.args.get("page", 1))  # Página actual (default: 1)
+        limit = int(request.args.get("limit", 10))  # Productos por página (default: 10)
+        if page < 1 or limit < 1:
+            raise ValueError("Los valores de page y limit deben ser mayores a 0")
+    except ValueError:
+        return jsonify({"error": "Parámetros de paginación inválidos"}), 400
+
+    offset = (page - 1) * limit  # Calcular desde qué fila empezar
+
+    # Consulta paginada
+    sql = "SELECT * FROM productos WHERE no_disponible=0 LIMIT %s OFFSET %s"
+    productos = query(sql, (limit, offset), fetchall=True)
+
+    # Verificar si hay más productos disponibles
+    sql_count = "SELECT COUNT(*) as total FROM productos WHERE no_disponible=0"
+    total_productos = query(sql_count)["total"]
+    has_more = (page * limit) < total_productos  # Si hay más productos después de esta página
+
+    # Formatear la respuesta
     productos = [
         {key: value for key, value in producto.items() if key != "id"}
         for producto in productos
     ]
-    
-    return jsonify(productos)
+
+    return jsonify({
+        "productos": productos,
+        "page": page,
+        "limit": limit,
+        "has_more": has_more
+    })
+
 
 # Ruta para obtener un producto por UUID
 @product_bp.route('/panel/<string:uuid>', methods=['GET'])
@@ -188,12 +213,18 @@ def obtener_pagina_productos(user_id):
 @token_required  # Asegura que el token sea validado antes de acceder a esta ruta
 def crear_producto(user_id):
     """Crea un nuevo producto en la base de datos."""
+    
+    access = get_user_access(user_id)
+    
+    if access != "admin":
+        return jsonify({"error": "No tiene permisos para realizar esta acción"}), 403
+    
     try:
         # Obtener los datos del producto enviados en la solicitud
         data = request.get_json()
 
         # Validar que los campos requeridos estén presentes
-        required_fields = ['sku', 'nombre', 'descripcion', 'precio', 'cantidad', 'no_disponible', 'categoria_uuid', 'inversionista_uuid']
+        required_fields = ['sku', 'nombre', 'descripcion', 'precio_unitario', 'precio', 'cantidad', 'no_disponible', 'categoria_uuid', 'inversionista_uuid', 'bandera']
         for field in required_fields:
             if field not in data:
                 return jsonify({"error": f"El campo {field} es requerido"}), 400
@@ -202,11 +233,14 @@ def crear_producto(user_id):
         sku = data['sku']
         nombre = data['nombre']
         descripcion = data['descripcion']
+        precio_unitario = data['precio_unitario']
         precio = data['precio']
         cantidad = data['cantidad']
         no_disponible = data['no_disponible']
+        bandera = data['bandera']  
         categoria_uuid = data['categoria_uuid']  # Usamos el UUID 
         inversionista_uuid = data['inversionista_uuid']  # Usamos el UUID
+        
         imagen = data.get('imagen', None)  # Imagen es opcional (base64)
 
         # Paso 1: Obtener la categoría por uuid
@@ -259,22 +293,32 @@ def crear_producto(user_id):
 
         # Paso 5: Consulta SQL para insertar el nuevo producto
         sql_producto = """
-            INSERT INTO productos (uuid, sku, nombre, descripcion, precio, cantidad, 
-                                no_disponible, categoria_id, inversionista_id, imagen) 
-            VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
+            INSERT INTO productos (uuid, sku, nombre, descripcion, precio_unitario, precio, cantidad, 
+                                no_disponible, categoria_id, inversionista_id, bandera, imagen) 
+            VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
         """
+        
+        # Verificar si el SKU ya existe
+        sku_existente = query("SELECT id FROM productos WHERE sku = %s", (sku,))
 
-        # Intentamos ejecutar la consulta SQL de inserción
-        rows_affected = query(sql_producto, (uuid_producto, sku, nombre, descripcion, precio, cantidad, no_disponible, categoria_id, inversionista_id, imagen_url), commit=True)
+        if sku_existente:
+            return jsonify({"status": False, "error": "El SKU ya existe"}), 400
 
-        # Verificar si la inserción fue exitosa (al menos una fila debe haber sido afectada)
-        if rows_affected and rows_affected > 0:
-            return jsonify({"status": True, "message": "Producto creado con éxito"}), 201
-        else:
-            return jsonify({"status": False, "message": "No se pudo insertar el producto"}), 500
+        try:
+            # Intentamos ejecutar la consulta SQL de inserción
+            rows_affected = query(sql_producto, (uuid_producto, sku, nombre, descripcion, precio_unitario, precio, cantidad, no_disponible, categoria_id, inversionista_id, bandera, imagen_url), commit=True)
 
-    except Exception as e:
-        return jsonify({"error": "Error al crear el producto", "details": str(e)}), 500
+            # Verificar si la inserción fue exitosa (al menos una fila debe haber sido afectada)
+            if rows_affected and rows_affected > 0 :
+                return jsonify({"status": True, "message": "Producto creado con éxito"}), 201
+            else:
+                return jsonify({"status": False, "error": error_message }), 400
+    
+        except mysql.connector.IntegrityError as ie:
+            return jsonify({"status": False, "error": "Ya existe un producto con este SKU", "details": str(ie)}), 400
+
+    except Error as e:
+        return jsonify({"status": False, "error": "Error al crear el producto", "details": str(e)}), 500
 
 
 
@@ -282,11 +326,17 @@ def crear_producto(user_id):
 @token_required  
 def actualizar_producto(user_id, uuid):
     """Actualiza un producto en la base de datos."""
+    
+    access = get_user_access(user_id)
+    
+    if access != "admin":
+        return jsonify({"error": "No tiene permisos para realizar esta acción"}), 403
+    
     try:
         data = request.get_json()
 
         # Validar que los campos requeridos estén presentes
-        required_fields = ['nombre', 'sku', 'descripcion', 'precio', 'cantidad', 'no_disponible', 'categoria_uuid', 'inversionista_uuid', 'imagen']
+        required_fields = ['nombre', 'sku', 'descripcion', 'precio_unitario', 'precio', 'cantidad', 'no_disponible', 'categoria_uuid', 'inversionista_uuid', 'bandera', 'imagen']
         for field in required_fields:
             if field not in data:
                 return jsonify({"error": f"El campo {field} es requerido"}), 400
@@ -295,9 +345,11 @@ def actualizar_producto(user_id, uuid):
         sku = data['sku']
         nombre = data['nombre']
         descripcion = data['descripcion']
+        precio_unitario = data['precio_unitario']
         precio = data['precio']
         cantidad = data['cantidad']
         no_disponible = data['no_disponible']
+        bandera = data['bandera']
         categoria_uuid = data['categoria_uuid']
         inversionista_uuid = data['inversionista_uuid']
         imagen = data.get('imagen', None)  
@@ -336,23 +388,37 @@ def actualizar_producto(user_id, uuid):
         else:
             imagen_url = None  # No modificar si no se envió una nueva imagen
 
+         # Verificar si el SKU ya existe
+        producto = query("SELECT * FROM productos WHERE uuid = %s", (uuid,))
+
+        if not producto:
+            return jsonify({"status": False, "error": "No se encontro el producto."}), 400
+        
+        if producto['sku'] != sku:
+            sku_existe = query("SELECT * FROM productos WHERE sku=%s AND uuid != %s", (sku, uuid,))
+        
+            if sku_existe:
+                return jsonify({"status": False, "error": "El SKU ya existe"}),
+        
+        producto_id = producto['id']
+            
         # SQL para actualizar producto (omite la imagen si no se actualizó)
         sql_producto = """
             UPDATE productos 
-            SET sku = %s, nombre = %s, descripcion = %s, precio = %s, cantidad = %s, 
-                no_disponible = %s, categoria_id = %s, inversionista_id = %s
-            """ + (", imagen = %s" if imagen_url else "") + " WHERE uuid = %s"
+            SET sku = %s, nombre = %s, descripcion = %s, precio_unitario = %s, precio = %s, cantidad = %s, 
+                no_disponible = %s, categoria_id = %s, bandera = %s, inversionista_id = %s
+            """ + (", imagen = %s" if imagen_url else "") + " WHERE id = %s"
 
         # Parámetros (excluye la imagen si no se actualizó)
-        params = [sku, nombre, descripcion, precio, cantidad, no_disponible, categoria_id, inversionista_id]
+        params = [sku, nombre, descripcion, precio_unitario, precio, cantidad, no_disponible, categoria_id, bandera, inversionista_id]
         if imagen_url:
             params.append(imagen_url)
-        params.append(uuid)
+        params.append(producto_id)  # Agregar el ID del producto al final
 
         cursor = query(sql_producto, tuple(params), commit=True, return_cursor=True)
 
-        if cursor.rowcount == 0:
-            return jsonify({"status": False, "message": "No se encontró el producto o no se realizaron cambios"}), 404
+        if not cursor:
+            return jsonify({"status": False, "error": error_message}), 500
 
         return jsonify({"status": True, "message": "Producto actualizado con éxito"}), 200
 
@@ -366,6 +432,12 @@ def actualizar_producto(user_id, uuid):
 @token_required  # Asegura que el token sea validado antes de acceder a esta ruta
 def eliminar_producto(user_id, uuid):
     """Elimina un producto de la base de datos por su UUID."""
+    
+    access = get_user_access(user_id)
+    
+    if access != "admin":
+        return jsonify({"error": "No tiene permisos para realizar esta acción"}), 403
+    
     try:
         # Paso 1: Verificar si el producto existe
         sql_verificar = "SELECT id FROM productos WHERE uuid = %s"
