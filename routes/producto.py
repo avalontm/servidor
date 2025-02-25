@@ -31,27 +31,58 @@ def allowed_file(filename):
 
 @product_bp.route('/listar', methods=['GET'])
 def obtener_productos():
-    """Obtiene productos paginados de la base de datos."""
+    """Obtiene productos paginados con opción de ordenar por precio o fecha de creación y filtrar por nombre."""
 
-    # Obtener parámetros de paginación desde la URL
+    # Obtener parámetros de paginación
     try:
-        page = int(request.args.get("page", 1))  # Página actual (default: 1)
-        limit = int(request.args.get("limit", 10))  # Productos por página (default: 10)
+        page = int(request.args.get("page", 1))
+        limit = int(request.args.get("limit", 10))
         if page < 1 or limit < 1:
-            raise ValueError("Los valores de page y limit deben ser mayores a 0")
+            raise ValueError("Los valores de 'page' y 'limit' deben ser mayores a 0")
     except ValueError:
         return jsonify({"error": "Parámetros de paginación inválidos"}), 400
 
     offset = (page - 1) * limit  # Calcular desde qué fila empezar
 
-    # Consulta paginada
-    sql = "SELECT * FROM productos WHERE no_disponible=0 LIMIT %s OFFSET %s"
-    productos = query(sql, (limit, offset), fetchall=True)
+    # Obtener los parámetros de orden
+    orden = request.args.get("orden", "asc").lower()
+    ordenar_por = request.args.get("ordenar_por", "precio").lower()
 
-    # Verificar si hay más productos disponibles
+    if orden not in ["asc", "desc"]:
+        return jsonify({"error": "El parámetro 'orden' solo puede ser 'asc' o 'desc'"}), 400
+
+    if ordenar_por not in ["precio", "fecha_creacion"]:
+        return jsonify({"error": "El parámetro 'ordenar_por' solo puede ser 'precio' o 'fecha_creacion'"}), 400
+
+    # Construir la parte de ORDER BY dinámicamente
+    order_by = f"ORDER BY {ordenar_por} {orden.upper()}"
+
+    # Obtener el término de búsqueda
+    search = request.args.get("search", "").strip()
+
+    # Construir la consulta SQL con búsqueda
+    sql = "SELECT * FROM productos WHERE no_disponible=0"
+    params = []
+
+    if search:
+        sql += " AND nombre LIKE %s"
+        params.append(f"%{search}%")
+
+    sql += f" {order_by} LIMIT %s OFFSET %s"
+    params.extend([limit, offset])
+
+    productos = query(sql, params, fetchall=True)
+
+    # Contar el total de productos disponibles con la misma búsqueda
     sql_count = "SELECT COUNT(*) as total FROM productos WHERE no_disponible=0"
-    total_productos = query(sql_count)["total"]
-    has_more = (page * limit) < total_productos  # Si hay más productos después de esta página
+    count_params = []
+
+    if search:
+        sql_count += " AND nombre LIKE %s"
+        count_params.append(f"%{search}%")
+
+    total_productos = query(sql_count, count_params)["total"]
+    has_more = (page * limit) < total_productos
 
     # Formatear la respuesta
     productos = [
