@@ -7,7 +7,7 @@ openai_bp = Blueprint("openai", __name__)
 # Configurar el cliente de OpenAI con OpenRouter
 client = OpenAI(
     base_url="https://openrouter.ai/api/v1",
-    api_key="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",
+    api_key="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",
 )
 
 # Ruta para generar descripciones de productos

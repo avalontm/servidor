@@ -14,7 +14,7 @@ def obtener_categorias(user_id):
     
     try:
         # Consulta SQL para obtener todas las categorías
-        sql = "SELECT * FROM categorias WHERE eliminado = 0"  # Asegúrate de tener un campo 'activo' si solo quieres categorías activas
+        sql = "SELECT * FROM categorias WHERE eliminado = 0 ORDER BY nombre ASC"  # Asegúrate de tener un campo 'activo' si solo quieres categorías activas
         categorias = query(sql, fetchall=True)  # Usamos fetchall porque esperamos varios resultados
         
         if not categorias:

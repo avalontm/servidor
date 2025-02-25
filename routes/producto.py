@@ -152,7 +152,7 @@ def obtener_pagina_productos(user_id):
     # Obtener el id de la categoría a partir de su uuid
     categoria_id = None
     if categoria_uuid:
-        sql_categoria = "SELECT id FROM categorias WHERE uuid = %s"
+        sql_categoria = "SELECT id FROM categorias WHERE uuid = %s ORDER BY nombre ASC"
         categoria_resultado = query(sql_categoria, params=(categoria_uuid,))
 
         if categoria_resultado:
@@ -166,6 +166,8 @@ def obtener_pagina_productos(user_id):
     # Si se pasó un id de categoría, agregar el filtro
     if categoria_id:
         sql += " AND p.categoria_id = %s"
+    
+    sql += " ORDER BY p.id DESC"
     
     # Agregar la paginación
     sql += " LIMIT %s OFFSET %s"
@@ -280,7 +282,7 @@ def crear_producto(user_id):
             imagen_filename = f"{uuid_obj.hex}.png"  # Cambia la extensión si es necesario
 
             # Definir la ruta donde se guardará la imagen
-            imagen_path = os.path.join(APP_PUBLIC, imagen_filename)
+            imagen_path = os.path.join(APP_PUBLIC, "productos", imagen_filename)
 
             # Guardar la imagen en el directorio
             if img_data:
@@ -376,7 +378,7 @@ def actualizar_producto(user_id, uuid):
                 img_data = base64.b64decode(imagen.split(',')[1])  # Decodifica solo si tiene ","
                 uuid_obj = uuid_module.UUID(uuid)
                 imagen_nombre = f"{uuid_obj.hex}.png"
-                imagen_path = os.path.join(APP_PUBLIC, imagen_nombre)
+                imagen_path = os.path.join(APP_PUBLIC,"productos", imagen_nombre)
 
                 with open(imagen_path, 'wb') as f:
                     f.write(img_data)
@@ -406,8 +408,8 @@ def actualizar_producto(user_id, uuid):
         sql_producto = """
             UPDATE productos 
             SET sku = %s, nombre = %s, descripcion = %s, precio_unitario = %s, precio = %s, cantidad = %s, 
-                no_disponible = %s, categoria_id = %s, bandera = %s, inversionista_id = %s
-            """ + (", imagen = %s" if imagen_url else "") + " WHERE id = %s"
+                no_disponible = %s, categoria_id = %s, bandera = %s, inversionista_id = %s, fecha_modificacion = NOW()
+        """ + (", imagen = %s" if imagen_url else "") + " WHERE id = %s"
 
         # Parámetros (excluye la imagen si no se actualizó)
         params = [sku, nombre, descripcion, precio_unitario, precio, cantidad, no_disponible, categoria_id, bandera, inversionista_id]

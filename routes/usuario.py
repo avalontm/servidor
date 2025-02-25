@@ -1,15 +1,12 @@
-# routes/users.py
-# Proyecto: API de Productos
-# Desarrollado por: AvalonTM
-# Versión: 1.0.0
-# Fecha de última modificación: 2025-02-15
-# Descripción: API para gestionar usaurios en la base de datos.
-
-
+import os
 from flask import Blueprint, request, jsonify
-from utils.auth_utils import create_user, check_user_credentials
+from werkzeug.utils import secure_filename
+from utils.auth_utils import check_user_credentials, create_user
 from utils.jwt_utils import generate_jwt_token, token_required
-from utils.db_utils import get_user_name
+from utils.db_utils import query
+from utils.app_config import APP_PUBLIC, APP_SITE
+from utils.db_utils import error_message
+from werkzeug.security import generate_password_hash, check_password_hash
 
 user_bp = Blueprint('usuario', __name__)
 
@@ -61,9 +58,88 @@ def login():
 @user_bp.route('/info', methods=['GET'])
 @token_required  # Asegura que el token sea validado antes de acceder a esta ruta
 def protected(user_id):
-    user_name = get_user_name(user_id)
+    user = query("SELECT * FROM usuarios WHERE id = %s LIMIT 1", (user_id,))
     
-    if user_name:
-        return jsonify({'status': True, "message": f"Bienvenido, {user_name}!"})
+    if user:
+         # Eliminamos campos no deseados
+        user = {key: value for key, value in user.items() if key not in ["id", "contrasena"]}
+        return jsonify(user), 200
     else:
         return jsonify({'status': False, "message": "Usuario no encontrado"}), 404
+    
+# Ruta para actualizar perfil
+@user_bp.route('/actualizar', methods=['POST'])
+@token_required
+def actualizar_usuario(user_id):
+    try:
+        nombre = request.form.get('nombre')
+        telefono = request.form.get('telefono')
+        genero = request.form.get('genero')
+        foto = request.files.get('foto')
+        nueva_password = request.form.get('password')
+        confirmar_password = request.form.get('confirm_password')
+        password_actual = request.form.get('current_password')
+
+        # Validar que al menos un campo haya sido enviado
+        if not any([nombre, telefono, genero, foto, nueva_password]):
+            return jsonify({'status': False, "message": "No hay datos para actualizar"}), 400
+
+        # Verificar la contraseña actual si el usuario intenta cambiar la contraseña
+        if nueva_password or confirmar_password:
+            if not password_actual:
+                return jsonify({'status': False, "message": "Debes ingresar tu contraseña actual"}), 400
+            
+            # Obtener la contraseña actual desde la base de datos
+            usuario = query("SELECT contrasena FROM usuarios WHERE id = %s LIMIT 1", (user_id,))
+            if not usuario:
+                return jsonify({'status': False, "message": "Usuario no encontrado"}), 404
+            
+            if not check_password_hash(usuario['contrasena'], password_actual):
+                return jsonify({'status': False, "message": "La contraseña actual es incorrecta"}), 400
+            
+            if nueva_password != confirmar_password:
+                return jsonify({'status': False, "message": "Las contraseñas nuevas no coinciden"}), 400
+            
+            hashed_password = generate_password_hash(nueva_password)
+
+        # Directorio donde se guardarán las imágenes de perfil
+        os.makedirs(os.path.join(APP_PUBLIC, "avatares"), exist_ok=True)
+
+        # Procesar imagen si se subió
+        foto_url = None
+        if foto:
+            filename = secure_filename(f"user_{user_id}.jpg")  # Guardar siempre con el mismo nombre para cada usuario
+            foto_path = os.path.join(APP_PUBLIC, "avatares", filename)
+            foto.save(foto_path)
+            foto_url = f"/assets/avatares/{filename}"
+
+        # Construir la consulta dinámica
+        updates = []
+        params = []
+        if nombre:
+            updates.append("nombre = %s")
+            params.append(nombre)
+        if telefono:
+            updates.append("telefono = %s")
+            params.append(telefono)
+        if genero:
+            updates.append("genero = %s")
+            params.append(genero)
+        if foto_url:
+            updates.append("avatar = %s")
+            params.append(foto_url)
+        if nueva_password and confirmar_password:
+            updates.append("contrasena = %s")
+            params.append(hashed_password)
+
+        if updates:
+            params.append(user_id)
+            cursor = query(f"UPDATE usuarios SET {', '.join(updates)} WHERE id = %s", tuple(params), commit=True, return_cursor=True)
+
+            if not cursor:
+                return jsonify({"status": False, "error": error_message}), 500
+
+        return jsonify({'status': True, "message": "Perfil actualizado correctamente"}), 200
+
+    except Exception as e:
+        return jsonify({'status': False, "message": f"Error interno: {str(e)}"}), 500
