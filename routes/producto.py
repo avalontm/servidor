@@ -81,7 +81,9 @@ def obtener_productos():
         sql_count += " AND nombre LIKE %s"
         count_params.append(f"%{search}%")
 
-    total_productos = query(sql_count, count_params)["total"]
+    count_params = count_params if count_params else None
+    total_result = query(sql_count, count_params)
+    total_productos = total_result["total"] if total_result else 0  # Extraer el número correcto
     has_more = (page * limit) < total_productos
 
     # Formatear la respuesta

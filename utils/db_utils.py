@@ -90,48 +90,29 @@ def query(sql, params=None, fetchall=False, commit=False, return_cursor=False):
     error_message = None  # Reiniciamos el mensaje de error
     
     connection = get_db_connection()
+    if not connection:
+        error_message = "No se pudo establecer la conexión con la base de datos."
+        return None, error_message  # Devuelve None y el error
+    
+    try:
+        cursor = connection.cursor(dictionary=True)
+        cursor.execute(sql, params)
 
-    if connection:
-        try:
-            cursor = connection.cursor(dictionary=True)
-            cursor.execute(sql, params)
+        if commit:
+            connection.commit()
+            return cursor.rowcount if cursor.rowcount is not None else 0  
 
-            if commit:
-                connection.commit()
-                if return_cursor:
-                    return cursor  # Devuelve el cursor para verificar rowcount
-                return cursor.rowcount if cursor.rowcount is not None else 0  # Asegura que no sea None
-
-            if fetchall:
-                result = cursor.fetchall()
-            else:
-                result = cursor.fetchone()
-
-            return result
-         # ERRORES CLASIFICADOS
-        except IntegrityError as e:
-            error_message = f"IntegrityError: {e}"
-        except DataError as e:
-            error_message = f"DataError: {e}"
-        except DatabaseError as e:
-            error_message = f"DatabaseError: {e}"
-        except OperationalError as e:
-            error_message = f"OperationalError: {e}"
-        except ProgrammingError as e:
-            error_message = f"ProgrammingError: {e}"
-        except InterfaceError as e:
-            error_message = f"InterfaceError: {e}"
-        except InternalError as e:
-            error_message = f"InternalError: {e}"
-        except NotSupportedError as e:
-            error_message = f"NotSupportedError: {e}"
-        except Exception as e:
-            error_message = f"UnknownError: {e}"  # Cualquier otro error inesperado
-        
-        finally:
-            if not return_cursor and cursor:
-                cursor.close()
-            if connection:
-                connection.close()
-
-    return None  # Devuelve `None` si hubo un error
+        result = cursor.fetchall() if fetchall else cursor.fetchone()
+        return result  
+        # ERRORES CLASIFICADOS
+    except (IntegrityError, DataError, DatabaseError, OperationalError, ProgrammingError, InterfaceError, InternalError, NotSupportedError) as e:
+        error_message = f"{type(e).__name__}: {str(e)}"
+        return None  # Devuelve el error correctamente
+    except Exception as e:
+        error_message = f"UnknownError: {e}"  # Cualquier otro error inesperado
+        return None  
+    finally:
+        if not return_cursor and cursor:
+            cursor.close()
+        if connection:
+            connection.close()

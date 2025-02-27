@@ -11,7 +11,7 @@ from routes.producto import product_bp
 from routes.categoria import category_bp
 from routes.inversionista import inversor_bp
 from routes.openai import openai_bp
-
+from routes.venta import venta_bp
 app = Flask(__name__)
 
 # Verificar la conexión a la base de datos al iniciar la aplicación
@@ -27,6 +27,7 @@ app.register_blueprint(user_bp, url_prefix='/api/usuario')
 app.register_blueprint(product_bp, url_prefix='/api/producto')
 app.register_blueprint(category_bp, url_prefix='/api/categoria')
 app.register_blueprint(inversor_bp, url_prefix='/api/inversionista')
+app.register_blueprint(venta_bp, url_prefix='/api/venta')
 app.register_blueprint(openai_bp, url_prefix='/api/openai')
 
 # Aplica CORS a todas las rutas
