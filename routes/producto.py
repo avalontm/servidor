@@ -459,7 +459,6 @@ def actualizar_producto(user_id, uuid):
 
 
     except Exception as e:
-        print(e)
         return jsonify({"error": "Error al actualizar el producto"}), 500
 
 
