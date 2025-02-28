@@ -10,7 +10,7 @@ from utils.app_config import APP_PUBLIC, APP_SITE
 from utils.db_utils import error_message
 from werkzeug.security import generate_password_hash, check_password_hash
 from mysql.connector import Error
-
+from socket_manager import socketio  # Importa socketio
 venta_bp = Blueprint('venta', __name__)
 
 #Ruta para obtener todas las ordenes
@@ -127,6 +127,19 @@ def ordenar(user_id):
             rows_affected = query(sql, (orden_uuid, fecha_orden, numero_orden, user_id, tipo_entrega, direccion_id, productos_json, total_cliente, 0), commit=True)
 
             if rows_affected and rows_affected > 0 :
+                # Definir la orden que se enviará al frontend
+                nueva_orden = {
+                    "uuid": orden_uuid,
+                    "numero_orden": numero_orden,
+                    "usuario_id": user_id,
+                    "tipo_entrega": tipo_entrega,
+                    "productos": productos,
+                    "total": total_cliente,
+                    "estado": "Pendiente",
+                    "fecha_orden": fecha_orden
+                }
+                # Emitir evento a todos los clientes conectados
+                socketio.emit('nueva_orden', nueva_orden)
                 return jsonify({"status": True,"message": "Puedes pasar a recoger a sucursal", "numero_orden": numero_orden}), 201
             else:
                 return jsonify({"status": False, "message": error_message if error_message else "Error desconocido"}), 400

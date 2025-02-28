@@ -4,6 +4,7 @@ from flask import Flask
 from flask_cors import CORS
 from utils.db_utils import verify_db_connection
 import sys
+from utils.socket_manager import socketio  # Importa socketio
 
 # Importar los blueprints
 from routes.usuario import user_bp
@@ -32,7 +33,13 @@ app.register_blueprint(openai_bp, url_prefix='/api/openai')
 
 # Aplica CORS a todas las rutas
 CORS(app)
+# Configurar WebSockets con Flask
+socketio.init_app(app)
 
+@socketio.on('connect')
+def handle_connect():
+    print("Cliente conectado")
+    
 def main():
     parser = argparse.ArgumentParser(description='Configurar parámetros del servidor Flask.')
     parser.add_argument('--host', type=str, default='0.0.0.0', help='Dirección host para ejecutar el servidor')
