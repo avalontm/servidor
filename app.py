@@ -36,10 +36,6 @@ CORS(app)
 # Configurar WebSockets con Flask
 socketio.init_app(app)
 
-@socketio.on('connect')
-def handle_connect():
-    print("Cliente conectado")
-    
 def main():
     parser = argparse.ArgumentParser(description='Configurar parámetros del servidor Flask.')
     parser.add_argument('--host', type=str, default='0.0.0.0', help='Dirección host para ejecutar el servidor')

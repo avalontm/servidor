@@ -1,16 +1,13 @@
 import datetime
-import os
 import uuid
 from flask import Blueprint, json, request, jsonify
-from werkzeug.utils import secure_filename
-from utils.auth_utils import check_user_credentials, create_user
-from utils.jwt_utils import generate_jwt_token, token_required
+from utils.jwt_utils import token_required
 from utils.db_utils import query
 from utils.app_config import APP_PUBLIC, APP_SITE
 from utils.db_utils import error_message
-from werkzeug.security import generate_password_hash, check_password_hash
 from mysql.connector import Error
-from socket_manager import socketio  # Importa socketio
+from utils.socket_manager import nueva_orden  # Importa socketio
+
 venta_bp = Blueprint('venta', __name__)
 
 #Ruta para obtener todas las ordenes
@@ -128,7 +125,7 @@ def ordenar(user_id):
 
             if rows_affected and rows_affected > 0 :
                 # Definir la orden que se enviará al frontend
-                nueva_orden = {
+                orden = {
                     "uuid": orden_uuid,
                     "numero_orden": numero_orden,
                     "usuario_id": user_id,
@@ -139,7 +136,7 @@ def ordenar(user_id):
                     "fecha_orden": fecha_orden
                 }
                 # Emitir evento a todos los clientes conectados
-                socketio.emit('nueva_orden', nueva_orden)
+                nueva_orden(orden)
                 return jsonify({"status": True,"message": "Puedes pasar a recoger a sucursal", "numero_orden": numero_orden}), 201
             else:
                 return jsonify({"status": False, "message": error_message if error_message else "Error desconocido"}), 400
