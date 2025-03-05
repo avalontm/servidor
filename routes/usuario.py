@@ -3,7 +3,7 @@ from flask import Blueprint, request, jsonify
 from werkzeug.utils import secure_filename
 from utils.auth_utils import check_user_credentials, create_user
 from utils.jwt_utils import generate_jwt_token, token_required
-from utils.db_utils import query
+from utils.db_utils import get_user_access, query
 from utils.app_config import APP_PUBLIC, APP_SITE
 from utils.db_utils import error_message
 from werkzeug.security import generate_password_hash, check_password_hash
@@ -143,3 +143,39 @@ def actualizar_usuario(user_id):
 
     except Exception as e:
         return jsonify({'status': False, "message": f"Error interno: {str(e)}"}), 500
+
+# Ruta para buscar usuarios con un solo filtro de búsqueda
+@user_bp.route('/buscar', methods=['GET'])
+@token_required
+def buscar_usuario(user_id):
+    access = get_user_access(user_id)
+    
+    if access != "admin":
+        return jsonify({'status': False, "message": "No tiene permisos para realizar esta acción"}), 403
+    
+    # Obtener el término de búsqueda desde la URL
+    search_term = request.args.get('search', '').strip()
+
+    if not search_term:
+        return jsonify({'status': False, 'message': 'Se requiere un término de búsqueda'}), 400
+
+    # Construir la consulta con múltiples filtros aplicados al término de búsqueda
+    query_str = """
+        SELECT uuid, email, nombre, apellido, telefono, puntos 
+        FROM usuarios 
+        WHERE nombre LIKE %s 
+        OR apellido LIKE %s 
+        OR email LIKE %s 
+        OR telefono LIKE %s
+    """
+
+    # Parámetros para la consulta, buscando el término en cualquiera de los campos
+    params = [f'%{search_term}%', f'%{search_term}%', f'%{search_term}%', f'%{search_term}%']
+
+    # Ejecutar la consulta
+    users = query(query_str, tuple(params), fetchall=True)
+
+    if users:
+        return jsonify({'status': True, 'usuarios': users}), 200
+    else:
+        return jsonify({'status': False, 'message': 'No se encontraron usuarios'}), 404

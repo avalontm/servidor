@@ -172,11 +172,17 @@ def renderizar_producto(uuid):
 @product_bp.route('/panel/pagina', methods=['GET'])
 @token_required  # Asegura que el token sea validado antes de acceder a esta ruta
 def obtener_pagina_productos(user_id):
-    """Obtiene los productos de la base de datos con paginación y filtrado por categoría."""
+    """Obtiene los productos de la base de datos con paginación, filtrado por categoría y búsqueda por nombre."""
     
+    access = get_user_access(user_id)
+
+    if access != "admin":
+        return jsonify({"error": "No tiene permisos para realizar esta acción"}), 403
+
     # Obtener los parámetros de la consulta
     page = int(request.args.get('page', 1))  # Página actual (por defecto 1)
     categoria_uuid = request.args.get('categoria', None)  # UUID de la categoría seleccionada (si existe)
+    search_term = request.args.get('buscar', '')  # Término de búsqueda (por defecto vacío)
     
     # Número de productos por página
     productos_por_pagina = 50  # Cambié a 50 para que traiga 50 productos
@@ -184,7 +190,7 @@ def obtener_pagina_productos(user_id):
     
     # Obtener el id de la categoría a partir de su uuid
     categoria_id = None
-    if categoria_uuid:
+    if categoria_uuid and not search_term:  # Solo filtrar por categoría si no hay búsqueda
         sql_categoria = "SELECT id FROM categorias WHERE uuid = %s ORDER BY nombre ASC"
         categoria_resultado = query(sql_categoria, params=(categoria_uuid,))
 
@@ -196,9 +202,13 @@ def obtener_pagina_productos(user_id):
     # Construir la consulta SQL para los productos
     sql = "SELECT p.*, c.uuid AS categoria_uuid FROM productos p LEFT JOIN categorias c ON p.categoria_id = c.id WHERE p.no_disponible=0"
     
-    # Si se pasó un id de categoría, agregar el filtro
-    if categoria_id:
+    # Si se pasó un id de categoría y no hay búsqueda, agregar el filtro
+    if categoria_id and not search_term:
         sql += " AND p.categoria_id = %s"
+    
+    # Si se pasó un término de búsqueda, agregar el filtro solo al nombre (sin importar la categoría)
+    if search_term:
+        sql += " AND p.nombre LIKE %s"  # Filtro solo por nombre
     
     sql += " ORDER BY p.id DESC"
     
@@ -208,15 +218,22 @@ def obtener_pagina_productos(user_id):
     # Ejecutar la consulta con los parámetros
     try:
         # Ejecutar la consulta y obtener los productos
-        params = (categoria_id, productos_por_pagina, offset) if categoria_id else (productos_por_pagina, offset)
-        productos = query(sql, params=params, fetchall=True)
+        params = (
+            f"%{search_term}%", productos_por_pagina, offset
+        ) if search_term else (
+            productos_por_pagina, offset
+        )
+        if categoria_id and not search_term:
+            params = (categoria_id, productos_por_pagina, offset)
+
+        productos = query(sql, params=(params), fetchall=True)
         
         if not productos:
             return jsonify({
-            "productos": productos,
-            "totalPaginas": 1,
-            "paginaActual": 1
-        })  # Si no hay productos, devolver una lista vacía
+                "productos": productos,
+                "totalPaginas": 1,
+                "paginaActual": 1
+            })  # Si no hay productos, devolver una lista vacía
         
         # Limpiar los productos para quitar el campo 'id' y 'categoria_id'
         productos = [
@@ -224,12 +241,26 @@ def obtener_pagina_productos(user_id):
             for producto in productos
         ]
         
-        # Contar el total de productos para calcular las páginas totales
-        sql_count = "SELECT COUNT(*) AS total FROM productos WHERE no_disponible=0"
-        if categoria_id:
-            sql_count += " AND categoria_id = %s"
-        
-        total_resultados = query(sql_count, params=(categoria_id,) if categoria_id else None, fetchall=False)['total']
+        # Construir la consulta para contar los productos
+        sql_count = "SELECT COUNT(*) AS total FROM productos p WHERE p.no_disponible=0"
+
+        # Si hay categoría, agregar el filtro por categoría
+        if categoria_id and not search_term:
+            sql_count += " AND p.categoria_id = %s"
+
+        # Si hay búsqueda, agregar el filtro de búsqueda
+        if search_term:
+            sql_count += " AND p.nombre LIKE %s"
+
+        # Definir los parámetros correctamente
+        params = ()
+        if categoria_id and not search_term:
+            params = (categoria_id,)
+        elif search_term:
+            params = (f"%{search_term}%",)
+
+        # Ejecutar la consulta para obtener el total de productos
+        total_resultados = query(sql_count, params=params, fetchall=False)['total']
         
         # Calcular el número total de páginas
         total_paginas = (total_resultados // productos_por_pagina) + (1 if total_resultados % productos_por_pagina > 0 else 0)
@@ -243,6 +274,7 @@ def obtener_pagina_productos(user_id):
     
     except Error as e:
         return jsonify({"error": str(e)}), 500
+
 
 @product_bp.route('/panel/crear', methods=['POST'])
 @token_required  # Asegura que el token sea validado antes de acceder a esta ruta
@@ -470,7 +502,7 @@ def eliminar_producto(user_id, uuid):
     access = get_user_access(user_id)
     
     if access != "admin":
-        return jsonify({"error": "No tiene permisos para realizar esta acción"}), 403
+        return jsonify({'status': False, "error": "No tiene permisos para realizar esta acción"}), 403
     
     try:
         # Paso 1: Verificar si el producto existe
