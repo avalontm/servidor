@@ -185,7 +185,7 @@ def obtener_pagina_productos(user_id):
     search_term = request.args.get('buscar', '')  # Término de búsqueda (por defecto vacío)
     
     # Número de productos por página
-    productos_por_pagina = 50  # Cambié a 50 para que traiga 50 productos
+    productos_por_pagina = 50  # maximo deproductos por pagina
     offset = (page - 1) * productos_por_pagina  # Calcular el OFFSET
     
     # Obtener el id de la categoría a partir de su uuid

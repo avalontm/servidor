@@ -146,3 +146,76 @@ def ordenar(user_id):
         
     except Exception as e:
         return jsonify({"status": False, "message": str(e)}), 500
+    
+@venta_bp.route('/crear', methods=['POST'])
+@token_required
+def crear_venta(user_id):
+    try:
+        # Obtener datos del cuerpo de la solicitud
+        data = request.json
+        cliente_uuid = data.get('cliente')  # Cliente seleccionado (si existe)
+        productos = data.get('productos', [])
+        total = float(data.get('total', 0))
+        metodo_pago = data.get('metodo_pago', '')
+        monto_pagado = float(data.get('monto_pagado', 0))
+        puntos_usados = float(data.get('puntos_usados', 0))
+
+        if not productos:
+            return jsonify({"status": False, "message": "No hay productos en el carrito"}), 400
+        
+        # Validar que el total con puntos no sea negativo
+        total_con_puntos = total - puntos_usados
+        if total_con_puntos < 0:
+            return jsonify({"status": False, "message": "Los puntos usados no pueden exceder el total"}), 400
+
+        # Verificar que la cantidad pagada sea suficiente
+        if metodo_pago == "efectivo" and monto_pagado + puntos_usados < total:
+            return jsonify({"status": False, "message": "La cantidad pagada no es suficiente"}), 400
+
+        # Generar UUID y número de orden
+        orden_uuid = str(uuid.uuid4())
+        fecha_orden = datetime.datetime.now().strftime('%Y-%m-%d %H:%M:%S')
+        numero_orden = f"ORD-{int(datetime.datetime.now().timestamp())}"
+
+        # Convertir productos a JSON
+        productos_json = json.dumps(productos)
+
+        # Registrar la venta en la base de datos
+        sql = """
+            INSERT INTO ordenes (uuid, fecha_orden, numero_orden, usuario_id, tipo_entrega, direccion_id, productos, total, estado)
+            VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s)
+        """
+        
+        try:
+            # Insertar la orden en la base de datos
+            rows_affected = query(sql, (orden_uuid, fecha_orden, numero_orden, user_id, "Sucursal", 0, productos_json, total_con_puntos, "Pendiente"), commit=True)
+
+            if rows_affected and rows_affected > 0 :
+                # Definir la orden que se enviará al frontend
+                orden = {
+                    "uuid": orden_uuid,
+                    "numero_orden": numero_orden,
+                    "usuario_id": user_id,
+                    "tipo_entrega": "Sucursal",  # Si tienes un tipo de entrega distinto lo puedes modificar
+                    "productos": productos,
+                    "total": total_con_puntos,
+                    "estado": "Pendiente",
+                    "fecha_orden": fecha_orden
+                }
+
+                # Emitir evento a todos los clientes conectados (socket.io)
+                nueva_orden(orden)
+                
+                return jsonify({
+                    "status": True,
+                    "message": "Venta registrada exitosamente",
+                    "numero_orden": numero_orden
+                }), 201
+            else:
+                return jsonify({"status": False, "message": "Error al registrar la venta"}), 500
+        
+        except Error as ie:
+            return jsonify({"status": False, "message": str(ie)}), 500
+        
+    except Exception as e:
+        return jsonify({"status": False, "message": str(e)}), 500
