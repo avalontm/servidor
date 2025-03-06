@@ -1,9 +1,8 @@
 # db_utils.py
 import mysql.connector
 from mysql.connector import Error, IntegrityError, DataError, DatabaseError, OperationalError, ProgrammingError, InterfaceError, InternalError, NotSupportedError
+from exeptions.DatabaseErrorException import DatabaseErrorException
 from utils.db_config import DB_CONFIG  # Importa la configuración desde db_config.py
-
-error_message = None  # Variable para almacenar el error
 
 # Función para verificar la conexión a la base de datos
 def verify_db_connection():
@@ -86,9 +85,6 @@ def get_user_access(user_id):
 
     
 def query(sql, params=None, fetchall=False, commit=False, return_cursor=False):
-    global error_message  # Declaramos que vamos a modificar la variable global
-    error_message = None  # Reiniciamos el mensaje de error
-    
     connection = get_db_connection()
     if not connection:
         error_message = "No se pudo establecer la conexión con la base de datos."
@@ -106,11 +102,9 @@ def query(sql, params=None, fetchall=False, commit=False, return_cursor=False):
         return result  
         # ERRORES CLASIFICADOS
     except (IntegrityError, DataError, DatabaseError, OperationalError, ProgrammingError, InterfaceError, InternalError, NotSupportedError) as e:
-        error_message = f"{type(e).__name__}: {str(e)}"
-        return None  # Devuelve el error correctamente
+        raise DatabaseErrorException(f"{type(e).__name__}: {str(e)}")
     except Exception as e:
-        error_message = f"UnknownError: {e}"  # Cualquier otro error inesperado
-        return None  
+        raise DatabaseErrorException(f"UnknownError: {e}")
     finally:
         if not return_cursor and cursor:
             cursor.close()

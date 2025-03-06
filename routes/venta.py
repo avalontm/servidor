@@ -1,10 +1,10 @@
-import datetime
+from datetime import datetime
 import uuid
 from flask import Blueprint, json, request, jsonify
+from exeptions.DatabaseErrorException import DatabaseErrorException
 from utils.jwt_utils import token_required
-from utils.db_utils import query
+from utils.db_utils import get_user_access, query
 from utils.app_config import APP_PUBLIC, APP_SITE
-from utils.db_utils import error_message
 from mysql.connector import Error
 from utils.socket_manager import nueva_orden  # Importa socketio
 
@@ -64,8 +64,10 @@ def orden(uuid, user_id):
             orden["productos"] = productos_detalles
 
         return jsonify({"status": True, "orden": orden}), 200
+    except DatabaseErrorException as e:
+        return jsonify({"status": False, "message": str(e.message)}), 500
     except Exception as e:
-        return jsonify({"status": False, "message": str(e) ,"error": error_message}), 500
+        return jsonify({"status": False, "message": str(e) }), 500
 
 
 # Ruta para registrar una nueva orden desde el carrito
@@ -105,7 +107,6 @@ def ordenar(user_id):
         if round(total_calculado, 2) != round(total_cliente, 2):
             return jsonify({"message": "El total enviado no coincide con el precio real"}), 400
 
-
         # Generar UUID y número de orden
         orden_uuid = str(uuid.uuid4())
         fecha_orden = datetime.datetime.now().strftime('%Y-%m-%d %H:%M:%S')
@@ -139,8 +140,9 @@ def ordenar(user_id):
                 nueva_orden(orden)
                 return jsonify({"status": True,"message": "Puedes pasar a recoger a sucursal", "numero_orden": numero_orden}), 201
             else:
-                return jsonify({"status": False, "message": error_message if error_message else "Error desconocido"}), 400
-        
+                return jsonify({"status": False, "message": "Error desconocido"}), 400
+        except DatabaseErrorException as e:
+            return jsonify({"status": False, "message": str(e.message)}), 500
         except Error as ie:
             return jsonify({"status": False, "message": str(ie)}), 400
         
@@ -150,6 +152,11 @@ def ordenar(user_id):
 @venta_bp.route('/crear', methods=['POST'])
 @token_required
 def crear_venta(user_id):
+    access = get_user_access(user_id)
+
+    if access != "admin":
+        return jsonify({"error": "No tiene permisos para realizar esta acción"}), 403
+
     try:
         # Obtener datos del cuerpo de la solicitud
         data = request.json
@@ -159,61 +166,199 @@ def crear_venta(user_id):
         metodo_pago = data.get('metodo_pago', '')
         monto_pagado = float(data.get('monto_pagado', 0))
         puntos_usados = float(data.get('puntos_usados', 0))
+        
+        #Estado de la venta
+        estado_venta = 0
+        
+        # Crear la lista de pagos con fecha, metodo_pago y monto
+        metodos_pago = []
+        
+        # Inicializar la variable de ganancias
+        ganancia_total = 0
 
         if not productos:
             return jsonify({"status": False, "message": "No hay productos en el carrito"}), 400
+        
+        if not cliente_uuid:
+            cliente_uuid = "publico-general"
+            
+        # Buscar el cliente por UUID
+        sql_cliente = "SELECT id, puntos FROM usuarios WHERE uuid = %s"
+        cliente = query(sql_cliente, (cliente_uuid,), fetchall=False)
+
+        if not cliente:
+            return jsonify({"status": False, "message": "Cliente no encontrado"}), 404
+
+        cliente_id = cliente['id']
+        
+        if puntos_usados > float(cliente['puntos']):
+            return jsonify({"status": False, "message": "No tienes puntos suficientes."}), 400
         
         # Validar que el total con puntos no sea negativo
         total_con_puntos = total - puntos_usados
         if total_con_puntos < 0:
             return jsonify({"status": False, "message": "Los puntos usados no pueden exceder el total"}), 400
 
-        # Verificar que la cantidad pagada sea suficiente
-        if metodo_pago == "efectivo" and monto_pagado + puntos_usados < total:
-            return jsonify({"status": False, "message": "La cantidad pagada no es suficiente"}), 400
-
-        # Generar UUID y número de orden
-        orden_uuid = str(uuid.uuid4())
-        fecha_orden = datetime.datetime.now().strftime('%Y-%m-%d %H:%M:%S')
-        numero_orden = f"ORD-{int(datetime.datetime.now().timestamp())}"
+        # Generar UUID para la venta
+        venta_uuid = str(uuid.uuid4())
+        fecha_venta = datetime.now().strftime('%Y-%m-%d %H:%M:%S')
+        folio_venta = f"VEN-{int(datetime.now().timestamp())}"
 
         # Convertir productos a JSON
         productos_json = json.dumps(productos)
 
+        # Agregar el método de pago correspondiente
+        if monto_pagado > 0 and metodo_pago == "efectivo":
+            metodos_pago.append({
+                "fecha": datetime.now().strftime('%Y-%m-%d %H:%M:%S'),
+                "metodo_pago": "efectivo",
+                "monto": monto_pagado if metodo_pago == "efectivo" else 0
+            })
+            
+        if monto_pagado > 0 and metodo_pago == "tarjeta":
+            metodos_pago.append({
+                "fecha": datetime.now().strftime('%Y-%m-%d %H:%M:%S'),
+                "metodo_pago": "tarjeta",
+                "monto": monto_pagado if metodo_pago == "tarjeta" else 0
+            })
+            
+        if monto_pagado > 0 and metodo_pago == "transferencia":
+            metodos_pago.append({
+                "fecha": datetime.now().strftime('%Y-%m-%d %H:%M:%S'),
+                "metodo_pago": "transferencia",
+                "monto": monto_pagado if metodo_pago == "transferencia" else 0
+            })
+    
+        # Agregar el pago de puntos si se usaron
+        if puntos_usados > 0:
+            metodos_pago.append({
+                "fecha": datetime.now().strftime('%Y-%m-%d %H:%M:%S'),
+                "metodo_pago": "puntos",
+                "monto": puntos_usados
+            })
+
+        # Convertir la lista a JSON
+        metodos_pago_json = json.dumps(metodos_pago)
+
+        # Filtrar solo los campos 'uuid', 'nombre', 'precio_unitario' y 'precio' de cada producto
+        productos_filtrados = [
+            {
+                "uuid": producto['uuid'], 
+                "nombre": producto['nombre'], 
+                "cantidad" : producto['cantidad'],
+                "precio_unitario": producto['precio_unitario'], 
+                "precio": producto['precio'],
+                "inversionista_id" : producto['inversionista_id'],
+            } 
+            for producto in productos
+        ]
+
+        # Convertir la lista filtrada a JSON
+        productos_json = json.dumps(productos_filtrados)
+
+        # Iterar sobre los productos para calcular las ganancias
+        for producto in productos:
+            precio_unitario = producto['precio_unitario']
+            precio_venta = producto['precio']
+            cantidad = producto['cantidad']
+            
+            # Calcular la ganancia por este producto
+            ganancia_producto = (precio_venta - precio_unitario) * cantidad
+            ganancia_total += ganancia_producto
+            
+            # Verificar que hay suficiente cantidad en productos
+            sql_inventario = "SELECT cantidad FROM productos WHERE uuid = %s"
+            inventario = query(sql_inventario, (producto['uuid'],), fetchall=False)
+
+            if not inventario:
+                return jsonify({"status": False, "message": f"Producto {producto['nombre']} no encontrado en inventario"}), 404
+            
+            cantidad_disponible = inventario['cantidad']
+
+            if cantidad > cantidad_disponible:
+                return jsonify({"status": False, "message": f"No hay suficiente stock para {producto['nombre']}"}), 400
+
+            # Descontar las unidades, asegurándose de que no se vuelva negativo
+            nueva_cantidad = max(0, cantidad_disponible - cantidad)
+
+            # Actualizar la cantidad en productos
+            sql_actualizar_inventario = "UPDATE productos SET cantidad = %s WHERE uuid = %s"
+            query(sql_actualizar_inventario, (nueva_cantidad, producto['uuid']), commit=True)
+
+        # Iterar sobre los productos para calcular las ganancias
+        for producto in productos:
+            precio_unitario = producto['precio_unitario']  # Suponemos que el producto tiene un campo 'precio_unitario'
+            precio_venta = producto['precio']  # El precio de venta
+            cantidad = producto['cantidad']  # Cantidad del producto en la venta
+            
+            # Calcular la ganancia por este producto
+            ganancia_producto = (precio_venta - precio_unitario) * cantidad
+            
+            # Sumar la ganancia del producto al total
+            ganancia_total += ganancia_producto
+    
+        # Verificar si el monto cubre la totalidad
+        if metodo_pago == "efectivo" and monto_pagado + puntos_usados >= total_con_puntos:
+            estado_venta = 1  # El monto cubre la totalidad
+        else:
+            estado_venta = 0  # El monto no cubre la totalidad
+
         # Registrar la venta en la base de datos
         sql = """
-            INSERT INTO ordenes (uuid, fecha_orden, numero_orden, usuario_id, tipo_entrega, direccion_id, productos, total, estado)
-            VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s)
+            INSERT INTO ventas (uuid, fecha_creacion, folio, cliente_id, empleado_id, productos, metodos_pago, efectivo, tarjeta, transferencia, puntos, ganancia, subtotal, impuesto, total, estado)
+            VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
         """
         
         try:
-            # Insertar la orden en la base de datos
-            rows_affected = query(sql, (orden_uuid, fecha_orden, numero_orden, user_id, "Sucursal", 0, productos_json, total_con_puntos, "Pendiente"), commit=True)
+            # Insertar la venta en la base de datos
+            rows_affected = query(sql, (
+                venta_uuid, 
+                fecha_venta, 
+                folio_venta, 
+                cliente_id, 
+                user_id, 
+                productos_json, 
+                metodos_pago_json,  # Aquí insertamos el JSON de métodos de pago
+                monto_pagado if metodo_pago == "efectivo" else 0,
+                monto_pagado if metodo_pago == "tarjeta" else 0, 
+                monto_pagado if metodo_pago == "transferencia" else 0,
+                puntos_usados, 
+                ganancia_total, #Ganancias 
+                total_con_puntos - (total_con_puntos * 0.08), #subTotal
+                total_con_puntos * 0.08, #impuesto
+                total_con_puntos, #Total
+                estado_venta  # Estado
+            ), commit=True)
 
-            if rows_affected and rows_affected > 0 :
-                # Definir la orden que se enviará al frontend
-                orden = {
-                    "uuid": orden_uuid,
-                    "numero_orden": numero_orden,
-                    "usuario_id": user_id,
-                    "tipo_entrega": "Sucursal",  # Si tienes un tipo de entrega distinto lo puedes modificar
-                    "productos": productos,
+            if rows_affected and rows_affected > 0:
+                # Definir la venta que se enviará al frontend
+                venta = {
+                    "uuid": venta_uuid,
+                    "folio": folio_venta,
+                    "cliente_id": cliente_id,
+                    "empleado_id": user_id,
+                    "productos": productos_filtrados,  # Aquí ya usamos la lista filtrada de productos
                     "total": total_con_puntos,
-                    "estado": "Pendiente",
-                    "fecha_orden": fecha_orden
+                    "estado": estado_venta,  
+                    "fecha_venta": fecha_venta
                 }
 
-                # Emitir evento a todos los clientes conectados (socket.io)
-                nueva_orden(orden)
+
+                # Emitir la impresion del ticket de venta
+                #imprimir_venta(venta)
                 
                 return jsonify({
                     "status": True,
                     "message": "Venta registrada exitosamente",
-                    "numero_orden": numero_orden
+                    "folio": folio_venta,
+                    "nota": venta,
                 }), 201
             else:
-                return jsonify({"status": False, "message": "Error al registrar la venta"}), 500
+                return jsonify({"status": False, "message": "Error al registrar la venta" }), 500
         
+        except DatabaseErrorException as e:
+            return jsonify({"status": False, "message": str(e.message)}), 500
+    
         except Error as ie:
             return jsonify({"status": False, "message": str(ie)}), 500
         

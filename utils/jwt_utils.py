@@ -34,9 +34,9 @@ def token_required(f):
             decoded = jwt.decode(token, SECRET_KEY, algorithms=['HS256'])
             kwargs['user_id'] = decoded['user_id']  # Extraemos el user_id del token decodificado
         except jwt.ExpiredSignatureError:
-            return jsonify({"message": "El token ha expirado"}), 401
+            return jsonify({"status": False, "message": "El token ha expirado"}), 401
         except jwt.InvalidTokenError:
-            return jsonify({"message": "Token inválido"}), 401
+            return jsonify({"status": False, "message": "Token inválido"}), 401
         
         return f(*args, **kwargs)
     

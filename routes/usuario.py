@@ -1,11 +1,11 @@
 import os
 from flask import Blueprint, request, jsonify
 from werkzeug.utils import secure_filename
+from exeptions.DatabaseErrorException import DatabaseErrorException
 from utils.auth_utils import check_user_credentials, create_user
 from utils.jwt_utils import generate_jwt_token, token_required
 from utils.db_utils import get_user_access, query
 from utils.app_config import APP_PUBLIC, APP_SITE
-from utils.db_utils import error_message
 from werkzeug.security import generate_password_hash, check_password_hash
 
 user_bp = Blueprint('usuario', __name__)
@@ -137,14 +137,16 @@ def actualizar_usuario(user_id):
             cursor = query(f"UPDATE usuarios SET {', '.join(updates)} WHERE id = %s", tuple(params), commit=True, return_cursor=True)
 
             if not cursor:
-                return jsonify({"status": False, "error": error_message}), 500
-
+                return jsonify({"status": False, "error": "Error desconocido"}), 500
+            
         return jsonify({'status': True, "message": "Perfil actualizado correctamente"}), 200
-
+    
+    except DatabaseErrorException as e:
+            return jsonify({"status": False, "message": str(e.message)}), 500
+        
     except Exception as e:
         return jsonify({'status': False, "message": f"Error interno: {str(e)}"}), 500
 
-# Ruta para buscar usuarios con un solo filtro de búsqueda
 @user_bp.route('/buscar', methods=['GET'])
 @token_required
 def buscar_usuario(user_id):
@@ -159,23 +161,27 @@ def buscar_usuario(user_id):
     if not search_term:
         return jsonify({'status': False, 'message': 'Se requiere un término de búsqueda'}), 400
 
-    # Construir la consulta con múltiples filtros aplicados al término de búsqueda
+    # Construir la consulta con búsqueda en nombre completo (nombre + apellido) y filtrando solo usuarios activos
     query_str = """
-        SELECT uuid, email, nombre, apellido, telefono, puntos 
+        SELECT uuid, email, nombre, apellido, CONCAT(nombre, ' ', apellido) AS nombre_completo, telefono, puntos 
         FROM usuarios 
-        WHERE nombre LIKE %s 
-        OR apellido LIKE %s 
+        WHERE (CONCAT(nombre, ' ', apellido) LIKE %s 
         OR email LIKE %s 
-        OR telefono LIKE %s
+        OR telefono LIKE %s)
+        AND eliminado = 0
     """
 
-    # Parámetros para la consulta, buscando el término en cualquiera de los campos
-    params = [f'%{search_term}%', f'%{search_term}%', f'%{search_term}%', f'%{search_term}%']
+    # Parámetros para la consulta, buscando el término en el nombre completo o en los otros campos
+    params = [f'%{search_term}%', f'%{search_term}%', f'%{search_term}%']
 
-    # Ejecutar la consulta
-    users = query(query_str, tuple(params), fetchall=True)
+    try:
+        # Ejecutar la consulta
+        users = query(query_str, tuple(params), fetchall=True)
 
-    if users:
-        return jsonify({'status': True, 'usuarios': users}), 200
-    else:
-        return jsonify({'status': False, 'message': 'No se encontraron usuarios'}), 404
+        if users:
+            return jsonify({'status': True, 'usuarios': users}), 200
+        else:
+            return jsonify({'status': False, 'message': 'No se encontraron usuarios'}), 404
+    
+    except DatabaseErrorException as e:
+        return jsonify({"status": False, "message": str(e.message)}), 500

@@ -13,12 +13,12 @@ import mysql
 from mysql.connector import Error
 from flask import Blueprint, jsonify, render_template, request
 import mysql.connector
+from exeptions.DatabaseErrorException import DatabaseErrorException
 from utils.db_utils import get_user_access, query
 from utils.jwt_utils import token_required
 from flask import jsonify, request
 from werkzeug.utils import secure_filename
 from utils.app_config import APP_PUBLIC, APP_SITE
-from utils.db_utils import error_message
 
 # Definimos el directorio donde guardar las imágenes
 ALLOWED_EXTENSIONS = {'png', 'jpg', 'jpeg', 'gif'}
@@ -379,8 +379,11 @@ def crear_producto(user_id):
             if rows_affected and rows_affected > 0 :
                 return jsonify({"status": True, "message": "Producto creado con éxito"}), 201
             else:
-                return jsonify({"status": False, "error": error_message }), 400
-    
+                return jsonify({"status": False, "error": "Error desconocido." }), 400
+
+        except DatabaseErrorException as e:
+            return jsonify({"status": False, "message": str(e.message)}), 500
+        
         except mysql.connector.IntegrityError as ie:
             return jsonify({"status": False, "error": "Ya existe un producto con este SKU", "details": str(ie)}), 400
 
@@ -485,11 +488,12 @@ def actualizar_producto(user_id, uuid):
         cursor = query(sql_producto, tuple(params), commit=True, return_cursor=True)
 
         if not cursor:
-            return jsonify({"status": False, "error": error_message}), 500
+            return jsonify({"status": False, "error": "erro desconocido."}), 500
 
         return jsonify({"status": True, "message": "Producto actualizado con éxito"}), 200
 
-
+    except DatabaseErrorException as e:
+            return jsonify({"status": False, "message": str(e.message)}), 500
     except Exception as e:
         return jsonify({"error": "Error al actualizar el producto"}), 500
 

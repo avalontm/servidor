@@ -1,10 +1,10 @@
 import datetime
 import uuid
 from flask import Blueprint, json, request, jsonify
+from exeptions.DatabaseErrorException import DatabaseErrorException
 from utils.jwt_utils import token_required
 from utils.db_utils import get_user_access, query
 from utils.app_config import APP_PUBLIC, APP_SITE
-from utils.db_utils import error_message
 from mysql.connector import Error
 from utils.socket_manager import nueva_orden  # Importa socketio
 
@@ -90,6 +90,9 @@ def get_orden(user_id, uuid):
         orden["productos"] = productos_json
 
         return jsonify({"status": True, "orden": orden}), 200
+    
+    except DatabaseErrorException as e:
+            return jsonify({"status": False, "message": str(e.message)}), 500
     except Exception as e:
         return jsonify({"status": False, "message": str(e)}), 500
 
@@ -123,9 +126,11 @@ def modificar_estado(user_id, uuid):
         cursor = query(sql, (estado, uuid), commit=True, return_cursor=True)
 
         if not cursor:
-            return jsonify({"status": False, "message": error_message}), 500
+            return jsonify({"status": False, "message": "error desconocido."}), 500
         
         return jsonify({"status": True, "message": "Estado de la orden actualizado"}), 200
 
+    except DatabaseErrorException as e:
+        return jsonify({"status": False, "message": str(e.message)}), 500
     except Exception as e:
         return jsonify({"status": False, "message": str(e)}), 500
