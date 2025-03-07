@@ -47,13 +47,17 @@ def get_orden(user_id, uuid):
     try:
         # Obtener la orden junto con el nombre del usuario
         sql_orden = """
-            SELECT o.uuid, o.fecha_orden, o.usuario_id, u.nombre AS nombre_usuario, 
-                   o.numero_orden, o.tipo_entrega, o.direccion_id, 
-                   o.productos, o.total, o.estado
-            FROM ordenes o
-            JOIN usuarios u ON o.usuario_id = u.id
-            WHERE o.uuid = %s
-        """
+                SELECT o.uuid, o.venta_uuid, o.fecha_orden, o.usuario_id, 
+                    CONCAT(u.nombre, ' ', u.apellido) AS cliente_nombre, 
+                    u.uuid AS cliente_uuid,
+                    u.puntos AS cliente_puntos,
+                    o.numero_orden, o.tipo_entrega, o.direccion_id, 
+                    o.productos, o.total, o.estado
+                FROM ordenes o
+                JOIN usuarios u ON o.usuario_id = u.id
+                WHERE o.uuid = %s
+            """
+
         orden = query(sql_orden, (uuid,))
 
         if not orden:

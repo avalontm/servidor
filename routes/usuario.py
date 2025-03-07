@@ -10,6 +10,54 @@ from werkzeug.security import generate_password_hash, check_password_hash
 
 user_bp = Blueprint('usuario', __name__)
 
+# Ruta para listar usuarios con paginación
+@user_bp.route('/panel/listar', methods=['GET'])
+@token_required  # Asegura que solo usuarios autenticados puedan acceder
+def listar_usuarios(user_id):
+    access = get_user_access(user_id)
+
+    if access != "admin":
+        return jsonify({"error": "No tiene permisos para realizar esta acción"}), 403
+    
+    # Parámetros de paginación y búsqueda
+    page = int(request.args.get('page', 1))
+    per_page = int(request.args.get('per_page', 10))
+    search = request.args.get('search', '')  # Parámetro de búsqueda por nombre, correo, etc.
+    
+    # Consulta SQL para obtener los usuarios, con filtro de búsqueda y paginación
+    query_string = """
+        SELECT uuid, fecha_creacion, nombre, apellido, email, avatar, role
+        FROM usuarios
+        WHERE CONCAT(nombre, ' ', apellido) LIKE %s OR email LIKE %s
+        ORDER BY fecha_creacion DESC
+        LIMIT %s OFFSET %s
+    """
+
+    
+    offset = (page - 1) * per_page
+    search_term = f"%{search}%"
+    
+    try:
+        
+        # Ejecutar la consulta
+        users = query(query_string, (search_term, search_term, per_page, offset), fetchall=True)
+        
+        # Consulta para obtener el total de usuarios
+        count_query = "SELECT COUNT(*) as total FROM usuarios WHERE CONCAT(nombre, ' ', apellido) LIKE %s OR email LIKE %s"
+        total_users = query(count_query, (search_term, search_term))['total']
+
+        # Retornar la respuesta
+        return jsonify({
+            'status': True,
+            'usuarios': users,
+            'total': total_users
+        }), 200
+    except DatabaseErrorException as e:
+            return jsonify({"status": False, "message": str(e.message)}), 500
+        
+    except Exception as e:
+        return jsonify({"status": False, "message": str(e)}), 500    
+    
 # Ruta para registrar un nuevo usuario
 @user_bp.route('/registrar', methods=['POST'])
 def register():

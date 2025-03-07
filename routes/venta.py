@@ -109,8 +109,8 @@ def ordenar(user_id):
 
         # Generar UUID y número de orden
         orden_uuid = str(uuid.uuid4())
-        fecha_orden = datetime.datetime.now().strftime('%Y-%m-%d %H:%M:%S')
-        numero_orden = f"ORD-{int(datetime.datetime.now().timestamp())}"
+        fecha_orden = datetime.now().strftime('%Y-%m-%d %H:%M:%S')
+        numero_orden = f"ORD-{int(datetime.now().timestamp())}"
 
         # Convertir productos a JSON
         productos_json = json.dumps(productos)
@@ -160,13 +160,14 @@ def crear_venta(user_id):
     try:
         # Obtener datos del cuerpo de la solicitud
         data = request.json
-        cliente_uuid = data.get('cliente')  # Cliente seleccionado (si existe)
+        cliente_uuid = data.get('cliente') 
         productos = data.get('productos', [])
         total = float(data.get('total', 0))
         metodo_pago = data.get('metodo_pago', '')
         monto_pagado = float(data.get('monto_pagado', 0))
         puntos_usados = float(data.get('puntos_usados', 0))
-        
+        orden_uuid = data.get('orden_uuid')
+       
         #Estado de la venta
         estado_venta = 0
         
@@ -191,6 +192,7 @@ def crear_venta(user_id):
 
         cliente_id = cliente['id']
         
+        
         if puntos_usados > float(cliente['puntos']):
             return jsonify({"status": False, "message": "No tienes puntos suficientes."}), 400
         
@@ -198,15 +200,13 @@ def crear_venta(user_id):
         total_con_puntos = total - puntos_usados
         if total_con_puntos < 0:
             return jsonify({"status": False, "message": "Los puntos usados no pueden exceder el total"}), 400
-
+        
         # Generar UUID para la venta
         venta_uuid = str(uuid.uuid4())
         fecha_venta = datetime.now().strftime('%Y-%m-%d %H:%M:%S')
         folio_venta = f"VEN-{int(datetime.now().timestamp())}"
 
-        # Convertir productos a JSON
-        productos_json = json.dumps(productos)
-
+     
         # Agregar el método de pago correspondiente
         if monto_pagado > 0 and metodo_pago == "efectivo":
             metodos_pago.append({
@@ -239,25 +239,57 @@ def crear_venta(user_id):
 
         # Convertir la lista a JSON
         metodos_pago_json = json.dumps(metodos_pago)
+       
+        # Obtener los UUIDs de los productos en la venta
+        uuids_productos = [producto["uuid"] for producto in productos]
 
-        # Filtrar solo los campos 'uuid', 'nombre', 'precio_unitario' y 'precio' de cada producto
-        productos_filtrados = [
-            {
-                "uuid": producto['uuid'], 
-                "nombre": producto['nombre'], 
-                "cantidad" : producto['cantidad'],
-                "precio_unitario": producto['precio_unitario'], 
-                "precio": producto['precio'],
-                "inversionista_id" : producto['inversionista_id'],
-            } 
-            for producto in productos
-        ]
+        # Verificar que haya UUIDs válidos antes de hacer la consulta
+        if not uuids_productos:
+            return jsonify({"message": "No se encontraron UUIDs válidos en los productos", "status": False}), 400
+
+        # Construir la consulta con los placeholders (%s)
+        query_sql = """
+            SELECT uuid, nombre, precio_unitario, precio, imagen, inversionista_id 
+            FROM productos
+            WHERE uuid IN (%s)
+        """ % ",".join(["%s"] * len(uuids_productos))  # Construye el número correcto de placeholders
+ 
+        # Ejecutar la consulta con los valores de los UUIDs
+        productos_db = query(query_sql, tuple(uuids_productos), fetchall=True)
+        
+        # Si no se encontraron productos en la base de datos
+        if not productos_db:
+            return jsonify({"message": "No se encontraron productos en la base de datos", "status": False}), 400
+
+        # Crear un diccionario con los datos reales de los productos
+        productos_dict = {producto["uuid"]: producto for producto in productos_db}
+
+  
+        # Filtrar y combinar los datos con la cantidad y precio total
+        productos_filtrados = []
+        for producto in productos:
+            _uuid = producto["uuid"]
+            
+            if _uuid in productos_dict:
+                producto_real = productos_dict[_uuid]
+                productos_filtrados.append({
+                    "uuid": _uuid,
+                    "nombre": producto_real["nombre"],
+                    "cantidad": producto["cantidad"],  # Mantener la cantidad ingresada en la venta
+                    "precio_unitario": producto_real["precio_unitario"],  # Precio real de la base de datos
+                    "precio": producto["cantidad"] * producto_real["precio"],  # Recalcular precio total
+                    "inversionista_id": producto_real["inversionista_id"],
+                })
+
+        # Si después del filtrado no hay productos válidos
+        if not productos_filtrados:
+            return jsonify({"message": "No se pudieron validar los productos", "status": False}), 400
 
         # Convertir la lista filtrada a JSON
         productos_json = json.dumps(productos_filtrados)
 
         # Iterar sobre los productos para calcular las ganancias
-        for producto in productos:
+        for producto in productos_filtrados:
             precio_unitario = producto['precio_unitario']
             precio_venta = producto['precio']
             cantidad = producto['cantidad']
@@ -266,14 +298,7 @@ def crear_venta(user_id):
             ganancia_producto = (precio_venta - precio_unitario) * cantidad
             ganancia_total += ganancia_producto
             
-            # Verificar que hay suficiente cantidad en productos
-            sql_inventario = "SELECT cantidad FROM productos WHERE uuid = %s"
-            inventario = query(sql_inventario, (producto['uuid'],), fetchall=False)
-
-            if not inventario:
-                return jsonify({"status": False, "message": f"Producto {producto['nombre']} no encontrado en inventario"}), 404
-            
-            cantidad_disponible = inventario['cantidad']
+            cantidad_disponible = producto['cantidad']
 
             if cantidad > cantidad_disponible:
                 return jsonify({"status": False, "message": f"No hay suficiente stock para {producto['nombre']}"}), 400
@@ -286,7 +311,7 @@ def crear_venta(user_id):
             query(sql_actualizar_inventario, (nueva_cantidad, producto['uuid']), commit=True)
 
         # Iterar sobre los productos para calcular las ganancias
-        for producto in productos:
+        for producto in productos_filtrados:
             precio_unitario = producto['precio_unitario']  # Suponemos que el producto tiene un campo 'precio_unitario'
             precio_venta = producto['precio']  # El precio de venta
             cantidad = producto['cantidad']  # Cantidad del producto en la venta
@@ -311,7 +336,7 @@ def crear_venta(user_id):
         
         try:
             # Insertar la venta en la base de datos
-            rows_affected = query(sql, (
+            cursor = query(sql, (
                 venta_uuid, 
                 fecha_venta, 
                 folio_venta, 
@@ -328,9 +353,9 @@ def crear_venta(user_id):
                 total_con_puntos * 0.08, #impuesto
                 total_con_puntos, #Total
                 estado_venta  # Estado
-            ), commit=True)
+            ), commit=True, return_cursor=True)
 
-            if rows_affected and rows_affected > 0:
+            if cursor:  # rowcount indica cuántas filas se han afectado
                 # Definir la venta que se enviará al frontend
                 venta = {
                     "uuid": venta_uuid,
@@ -343,6 +368,21 @@ def crear_venta(user_id):
                     "fecha_venta": fecha_venta
                 }
 
+                # Restar los puntos al cliente si se usaron puntos
+                if puntos_usados > 0:
+                    query("""
+                        UPDATE usuarios 
+                        SET puntos = GREATEST(0, puntos - %s)
+                        WHERE id = %s
+                    """, (puntos_usados, cliente_id), commit=True)
+
+                # Actualizar la orden y marcarla como "terminada"
+                if orden:
+                    query("""
+                        UPDATE ordenes 
+                        SET estado = 4, venta_uuid = %s
+                        WHERE uuid = %s
+                    """, (venta_uuid, orden_uuid), commit=True)
 
                 # Emitir la impresion del ticket de venta
                 #imprimir_venta(venta)
@@ -357,7 +397,7 @@ def crear_venta(user_id):
                 return jsonify({"status": False, "message": "Error al registrar la venta" }), 500
         
         except DatabaseErrorException as e:
-            return jsonify({"status": False, "message": str(e.message)}), 500
+            return jsonify({"status": False, "message": str(e)}), 500
     
         except Error as ie:
             return jsonify({"status": False, "message": str(ie)}), 500
