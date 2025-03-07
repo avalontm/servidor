@@ -1,4 +1,6 @@
+import base64
 import os
+import uuid as uuid_module
 from flask import Blueprint, request, jsonify
 from werkzeug.utils import secure_filename
 from exeptions.DatabaseErrorException import DatabaseErrorException
@@ -9,6 +11,13 @@ from utils.app_config import APP_PUBLIC, APP_SITE
 from werkzeug.security import generate_password_hash, check_password_hash
 
 user_bp = Blueprint('usuario', __name__)
+
+# Definimos el directorio donde guardar las imágenes
+ALLOWED_EXTENSIONS = {'png', 'jpg', 'jpeg', 'gif'}
+
+# Función para verificar si el archivo tiene una extensión permitida
+def allowed_file(filename):
+    return '.' in filename and filename.rsplit('.', 1)[1].lower() in ALLOWED_EXTENSIONS
 
 # Ruta para listar usuarios con paginación
 @user_bp.route('/panel/listar', methods=['GET'])
@@ -233,3 +242,101 @@ def buscar_usuario(user_id):
     
     except DatabaseErrorException as e:
         return jsonify({"status": False, "message": str(e.message)}), 500
+
+@user_bp.route('/panel/<string:uuid>', methods=['GET'])
+@token_required
+def obtener_usuario(user_id, uuid):
+    access = get_user_access(user_id)
+    
+    if access != "admin":
+        return jsonify({'status': False, "message": "No tiene permisos para realizar esta acción"}), 403
+    
+    sql = """
+        SELECT uuid, nombre, email, apellido, telefono, avatar, puntos
+        FROM usuarios 
+        WHERE uuid = %s
+    """
+    usuario = query(sql, (uuid,))
+    
+    if not usuario:
+        return jsonify({"status": False, "message": "Usuario no encontrado"}), 404
+    
+    # Respuesta normal en JSON para el frontend React
+    return jsonify({"status" : True, "usuario" : usuario}), 200
+
+@user_bp.route('/panel/editar/<string:uuid>', methods=['PUT'])
+@token_required
+def editar_usuario(user_id, uuid):
+    access = get_user_access(user_id)
+    
+    if access != "admin":
+        return jsonify({'status': False, "message": "No tiene permisos para realizar esta acción"}), 403
+
+    # Obtener datos del usuario desde el body de la solicitud
+    data = request.get_json()
+
+    # Validar que se reciban los datos esperados
+    if not data:
+        return jsonify({'status': False, 'message': 'No se recibió datos en formato JSON'}), 400
+    
+    nombre = data.get("nombre")
+    apellido = data.get("apellido")
+    telefono = data.get("telefono")
+    avatar = data.get("avatar")  # El avatar puede ser None o una cadena base64
+    puntos = int(data.get("puntos", 0))  # Establecemos 0 como valor predeterminado si no se proporciona
+    contrasena = data.get("contrasena", None)  # Si se quiere cambiar la contraseña
+
+    # Validación de campos obligatorios
+    if not nombre or not apellido:
+        return jsonify({'status': False, 'message': 'Faltan campos obligatorios'}), 400
+
+    # Directorio donde se guardarán las imágenes de perfil
+    os.makedirs(os.path.join(APP_PUBLIC, "avatares"), exist_ok=True)
+        
+    # Procesar la imagen solo si está presente y tiene el formato correcto
+    imagen_url = None
+    if avatar and "," in avatar:
+        try:
+            img_data = base64.b64decode(avatar.split(',')[1])  # Decodifica solo la parte después de la coma
+            imagen_nombre = secure_filename(f"user_{user_id}.jpg")  # Guardar siempre con el mismo nombre para cada usuario
+            imagen_path = os.path.join(APP_PUBLIC, "avatares", imagen_nombre)    
+            # Guardar la imagen en el servidor
+            with open(imagen_path, 'wb') as f:
+                f.write(img_data)
+
+            imagen_url = f"/assets/avatares/{imagen_nombre}"  # Ruta pública de la imagen
+        except Exception as e:
+            print("Error al procesar la imagen:", e)
+            imagen_url = None  # No actualizar la imagen si hay un error
+
+    # Si no se proporciona una nueva imagen, mantenemos el avatar anterior
+    if contrasena:
+        contrasena_cifrada = generate_password_hash(contrasena)
+        sql = """
+            UPDATE usuarios 
+            SET nombre = %s, apellido = %s, telefono = %s, avatar = %s, puntos = %s, contrasena = %s
+            WHERE uuid = %s
+        """
+        params = (nombre, apellido, telefono, imagen_url or None, puntos, contrasena_cifrada, uuid)
+    else:
+        # Si no se proporciona una nueva contraseña, actualizamos sin modificarla
+        sql = """
+            UPDATE usuarios 
+            SET nombre = %s, apellido = %s, telefono = %s, avatar = %s, puntos = %s
+            WHERE uuid = %s
+        """
+        params = (nombre, apellido, telefono, imagen_url or None, puntos, uuid)
+
+    try:
+        # Ejecutar la consulta para actualizar los datos
+        cursor = query(sql, tuple(params), commit=True, return_cursor=True)
+        
+        if not cursor:
+            return jsonify({"status": True, "message": "No habia cambios por realizar."}), 200
+        
+        return jsonify({"status": True, "message": "Usuario actualizado con éxito"}), 200
+        
+    except DatabaseErrorException as e:
+        return jsonify({"status": False, "message": str(e.message)}), 400
+    except Exception as e:
+        return jsonify({"status": False, "message": str(e)}), 400
