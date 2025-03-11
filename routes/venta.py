@@ -168,7 +168,7 @@ def crear_venta(user_id):
         puntos_usados = float(data.get('puntos_usados', 0))
         orden_uuid = data.get('orden_uuid')
        
-        #Estado de la venta
+        # Estado de la venta
         estado_venta = 0
         
         # Crear la lista de pagos con fecha, metodo_pago y monto
@@ -184,7 +184,7 @@ def crear_venta(user_id):
             cliente_uuid = "publico-general"
             
         # Buscar el cliente por UUID
-        sql_cliente = "SELECT id, puntos FROM usuarios WHERE uuid = %s"
+        sql_cliente = "SELECT id, nombre, apellido, puntos FROM usuarios WHERE uuid = %s"
         cliente = query(sql_cliente, (cliente_uuid,), fetchall=False)
 
         if not cliente:
@@ -192,6 +192,11 @@ def crear_venta(user_id):
 
         cliente_id = cliente['id']
         
+        sql_usuario = "SELECT id, nombre, apellido, puntos FROM usuarios WHERE id = %s"
+        usuario = query(sql_usuario, (user_id,), fetchall=False)
+
+        if not usuario:
+            return jsonify({"status": False, "message": "Usuario no encontrado"}), 404
         
         if puntos_usados > float(cliente['puntos']):
             return jsonify({"status": False, "message": "No tienes puntos suficientes."}), 400
@@ -249,7 +254,7 @@ def crear_venta(user_id):
 
         # Construir la consulta con los placeholders (%s)
         query_sql = """
-            SELECT uuid, nombre, precio_unitario, precio, imagen, inversionista_id 
+            SELECT uuid, nombre, precio_unitario, precio, imagen, inversionista_id, cantidad 
             FROM productos
             WHERE uuid IN (%s)
         """ % ",".join(["%s"] * len(uuids_productos))  # Construye el número correcto de placeholders
@@ -272,13 +277,22 @@ def crear_venta(user_id):
             
             if _uuid in productos_dict:
                 producto_real = productos_dict[_uuid]
+                
+                # Verificar el stock disponible
+                cantidad_solicitada = producto["cantidad"]
+                cantidad_disponible = producto_real["cantidad"]
+                
+                if cantidad_solicitada > cantidad_disponible:
+                    return jsonify({"status": False, "message": f"No hay suficiente stock para {producto_real['nombre']}"}), 400
+                
                 productos_filtrados.append({
                     "uuid": _uuid,
                     "nombre": producto_real["nombre"],
-                    "cantidad": producto["cantidad"],  # Mantener la cantidad ingresada en la venta
-                    "precio_unitario": producto_real["precio_unitario"],  # Precio real de la base de datos
-                    "precio": producto["cantidad"] * producto_real["precio"],  # Recalcular precio total
+                    "cantidad": cantidad_solicitada,
+                    "precio_unitario": producto_real["precio_unitario"],
+                    "precio": cantidad_solicitada * producto_real["precio"],
                     "inversionista_id": producto_real["inversionista_id"],
+                    "cantidad_disponible": cantidad_disponible  # Almacenar la cantidad disponible real
                 })
 
         # Si después del filtrado no hay productos válidos
@@ -288,8 +302,12 @@ def crear_venta(user_id):
         # Convertir la lista filtrada a JSON
         productos_json = json.dumps(productos_filtrados)
 
-        # Iterar sobre los productos para calcular las ganancias
+        # Inicializar la ganancia total
+        ganancia_total = 0
+            
+        # Iterar sobre los productos para actualizar inventario y calcular ganancias
         for producto in productos_filtrados:
+            # Calcular ganancias
             precio_unitario = producto['precio_unitario']
             precio_venta = producto['precio']
             cantidad = producto['cantidad']
@@ -298,29 +316,13 @@ def crear_venta(user_id):
             ganancia_producto = (precio_venta - precio_unitario) * cantidad
             ganancia_total += ganancia_producto
             
-            cantidad_disponible = producto['cantidad']
-
-            if cantidad > cantidad_disponible:
-                return jsonify({"status": False, "message": f"No hay suficiente stock para {producto['nombre']}"}), 400
-
-            # Descontar las unidades, asegurándose de que no se vuelva negativo
-            nueva_cantidad = max(0, cantidad_disponible - cantidad)
-
+            # Actualizar inventario
+            cantidad_disponible = producto['cantidad_disponible']
+            nueva_cantidad = cantidad_disponible - cantidad
+            
             # Actualizar la cantidad en productos
             sql_actualizar_inventario = "UPDATE productos SET cantidad = %s WHERE uuid = %s"
             query(sql_actualizar_inventario, (nueva_cantidad, producto['uuid']), commit=True)
-
-        # Iterar sobre los productos para calcular las ganancias
-        for producto in productos_filtrados:
-            precio_unitario = producto['precio_unitario']  # Suponemos que el producto tiene un campo 'precio_unitario'
-            precio_venta = producto['precio']  # El precio de venta
-            cantidad = producto['cantidad']  # Cantidad del producto en la venta
-            
-            # Calcular la ganancia por este producto
-            ganancia_producto = (precio_venta - precio_unitario) * cantidad
-            
-            # Sumar la ganancia del producto al total
-            ganancia_total += ganancia_producto
     
         # Verificar si el monto cubre la totalidad
         if metodo_pago == "efectivo" and monto_pagado + puntos_usados >= total_con_puntos:
@@ -343,29 +345,108 @@ def crear_venta(user_id):
                 cliente_id, 
                 user_id, 
                 productos_json, 
-                metodos_pago_json,  # Aquí insertamos el JSON de métodos de pago
+                metodos_pago_json,
                 monto_pagado if metodo_pago == "efectivo" else 0,
                 monto_pagado if metodo_pago == "tarjeta" else 0, 
                 monto_pagado if metodo_pago == "transferencia" else 0,
                 puntos_usados, 
-                ganancia_total, #Ganancias 
-                total_con_puntos - (total_con_puntos * 0.08), #subTotal
-                total_con_puntos * 0.08, #impuesto
-                total_con_puntos, #Total
+                ganancia_total, # Ganancias 
+                total_con_puntos - (total_con_puntos * 0.08), # subTotal
+                total_con_puntos * 0.08, # impuesto
+                total_con_puntos, # Total
                 estado_venta  # Estado
             ), commit=True, return_cursor=True)
 
             if cursor:  # rowcount indica cuántas filas se han afectado
+
+                estado_texto = "Pendiente" if estado_venta == 0 else "Completado" if estado_venta == 1 else "Estado desconocido"
+                # Ancho máximo para el nombre del producto y el precio
+                nombre_max_len = 40
+                
                 # Definir la venta que se enviará al frontend
-                venta = {
-                    "uuid": venta_uuid,
-                    "folio": folio_venta,
-                    "cliente_id": cliente_id,
-                    "empleado_id": user_id,
-                    "productos": productos_filtrados,  # Aquí ya usamos la lista filtrada de productos
-                    "total": total_con_puntos,
-                    "estado": estado_venta,  
-                    "fecha_venta": fecha_venta
+                data = {
+                   "data": [
+                        {
+                            "alignment": "center",
+                            "text": "long play record store",
+                            "bold": True,
+                            "fontsize": "large",
+                        },
+                        {
+                            "lines": 4,
+                        },
+                        {
+                            "alignment": "left",
+                            "text": f"Folio de venta: {folio_venta}",
+                            "fontsize": "normal",
+                        },
+                        {
+                            "alignment": "left",
+                            "text": f"Fecha de venta: {fecha_venta}",
+                            "fontsize": "normal",
+                        },
+                        {
+                            "lines": 1,
+                        },
+                        {
+                            "separator": True,
+                        },
+                        {
+                            "alignment": "left",
+                            "text": f"Cliente: {cliente['nombre']} {cliente['apellido']}",
+                            "fontsize": "normal",
+                        },
+                        {
+                            "alignment": "left",
+                            "text": f"Empleado: {usuario['nombre']} {usuario['apellido']}",
+                            "fontsize": "normal",
+                        },
+                        {
+                            "lines": 2,
+                        },
+                        {
+                            "separator": True,
+                        },
+                        {
+                            "alignment": "left",
+                            "text": "Productos:",
+                            "fontsize": "normal",
+                        },
+                        # Generar los productos de la venta
+                        *[
+                            {
+                                "alignment": "left",
+                                "text": f"{producto['nombre'][:nombre_max_len]}{' ' * int((nombre_max_len - len(producto['nombre'][:nombre_max_len]))+2)}${producto['precio']}",
+                                "fontsize": "normal",
+                            }
+                            for producto in productos_filtrados
+                        ],
+                        {
+                            "lines": 1,
+                        },
+                        {
+                            "separator": True,
+                        },
+                        {
+                            "lines": 3,
+                        },
+                        {
+                            "alignment": "right",
+                            "text": f"Total: ${total_con_puntos}",
+                            "fontsize": "large",
+                            "bold" : True
+                        }, {
+                            "lines": 3,
+                        },
+                        {
+                            "alignment": "left",
+                            "text": f"Estado de la venta: {estado_texto}",
+                            "fontsize": "normal"
+                        },
+                        {
+                            "lines": 3,
+                        },
+                    ]
                 }
 
                 # Restar los puntos al cliente si se usaron puntos
@@ -377,7 +458,7 @@ def crear_venta(user_id):
                     """, (puntos_usados, cliente_id), commit=True)
 
                 # Actualizar la orden y marcarla como "terminada"
-                if orden:
+                if orden_uuid:
                     query("""
                         UPDATE ordenes 
                         SET estado = 4, venta_uuid = %s
@@ -391,7 +472,7 @@ def crear_venta(user_id):
                     "status": True,
                     "message": "Venta registrada exitosamente",
                     "folio": folio_venta,
-                    "nota": venta,
+                    "data": data,
                 }), 201
             else:
                 return jsonify({"status": False, "message": "Error al registrar la venta" }), 500
