@@ -109,3 +109,8 @@ sudo systemctl start start_api.service
 ```
 sudo systemctl restart start_api.service
 ```
+
+
+```
+sudo apt-get install imagemagick
+```
