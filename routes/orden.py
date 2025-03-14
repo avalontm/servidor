@@ -2,6 +2,7 @@ import datetime
 import uuid
 from flask import Blueprint, json, request, jsonify
 from exeptions.DatabaseErrorException import DatabaseErrorException
+from json_utils import convertir_metodos_pago
 from utils.jwt_utils import token_required
 from utils.db_utils import get_user_access, query
 from utils.app_config import APP_PUBLIC, APP_SITE
@@ -10,31 +11,80 @@ from utils.socket_manager import nueva_orden  # Importa socketio
 
 orden_bp = Blueprint('orden', __name__)
 
-#Ruta para obtener todas las ordenes
-@orden_bp.route('/panel/lista', methods=['GET'])
+@orden_bp.route('/panel/listar', methods=['GET'])
 @token_required
-def ordenes(user_id):
-    
-    access = get_user_access(user_id)
-    
-    if access != "admin":
-        return jsonify({"error": "No tiene permisos para realizar esta acción"}), 403
-    
-    estado = request.args.get("estado", type=int) 
-    
-    try:
-        sql = """
-            SELECT o.uuid, o.fecha_orden, o.numero_orden, o.usuario_id, o.tipo_entrega, o.direccion_id, o.productos, o.total, o.estado
-            FROM ordenes o
-            WHERE o.estado = %s
-            ORDER BY o.fecha_orden DESC
-        """
-        ordenes = query(sql, (estado,), fetchall=True)
-        
-        return jsonify({"status": True, "ordenes": ordenes}), 200
-    except Exception as e:
-        return jsonify({"status": False, "message": str(e)}), 500
-    
+def listar_ordenes(user_id):
+   access = get_user_access(user_id)
+   
+   if access != "admin":
+       return jsonify({"error": "No tiene permisos para realizar esta acción"}), 403
+   
+   # Parámetros de paginación y búsqueda
+   page = request.args.get('page', 1, type=int)
+   per_page = request.args.get('per_page', 20, type=int)
+   search = request.args.get('search', '', type=str)
+   estado = request.args.get('estado', type=int)
+   
+   # Calcular offset para paginación
+   offset = (page - 1) * per_page
+   
+   try:
+       # Consulta base con búsqueda opcional
+       base_query = """
+           SELECT o.uuid, o.fecha_orden, o.numero_orden, o.usuario_id, 
+                  o.tipo_entrega, o.total, o.estado
+           FROM ordenes o
+           LEFT JOIN usuarios u ON o.usuario_id = u.id
+           WHERE 1=1
+       """
+       
+       # Añadir condición de búsqueda si hay término
+       params = []
+       if search:
+           base_query += """ 
+               AND (
+                   o.numero_orden LIKE %s OR 
+                   u.nombre LIKE %s OR 
+                   u.apellido LIKE %s OR 
+                   o.tipo_entrega LIKE %s
+               )
+           """
+           search_param = f"%{search}%"
+           params.extend([search_param] * 4)
+       
+       # Añadir filtro de estado si se proporciona
+       if estado is not None:
+           base_query += " AND o.estado = %s"
+           params.append(estado)
+       
+       # Consulta para total de registros
+       count_query = f"SELECT COUNT(*) as total FROM ({base_query}) as subquery"
+       total_result = query(count_query, tuple(params))
+       total_ordenes = total_result['total']
+       
+       # Consulta con paginación
+       paginated_query = base_query + """
+           ORDER BY o.fecha_orden DESC
+           LIMIT %s OFFSET %s
+       """
+       params.extend([per_page, offset])
+       
+       # Obtener órdenes
+       ordenes = query(paginated_query, tuple(params), fetchall=True)
+       
+       return jsonify({
+           "status": True, 
+           "ordenes": ordenes,
+           "total": total_ordenes,
+           "page": page,
+           "per_page": per_page
+       }), 200
+   
+   except Exception as e:
+       return jsonify({
+           "status": False, 
+           "message": str(e)
+       }), 500
     
 @orden_bp.route('/panel/<string:uuid>', methods=['GET'])
 @token_required

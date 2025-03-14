@@ -485,3 +485,343 @@ def crear_venta(user_id):
         
     except Exception as e:
         return jsonify({"status": False, "message": str(e)}), 500
+    
+@venta_bp.route('/panel/listar', methods=['GET'])
+@token_required
+def listar_ventas(user_id):
+    access = get_user_access(user_id)
+    
+    if access != "admin":
+        return jsonify({"error": "No tiene permisos para realizar esta acción"}), 403
+    
+    # Parámetros de paginación y búsqueda
+    page = request.args.get('page', 1, type=int)
+    per_page = request.args.get('per_page', 20, type=int)
+    search = request.args.get('search', '', type=str)
+    
+    # Calcular offset para paginación
+    offset = (page - 1) * per_page
+    
+    try:
+        # Consulta base con búsqueda opcional
+        base_query = """
+            SELECT v.uuid, v.fecha_creacion, v.folio, v.cliente_id, 
+                   CONCAT(u.nombre, ' ', u.apellido) AS cliente_nombre,
+                   v.total, v.estado
+            FROM ventas v
+            LEFT JOIN usuarios u ON v.cliente_id = u.id
+            WHERE 1=1
+        """
+        
+        # Añadir condición de búsqueda si hay término
+        params = []
+        if search:
+            base_query += """ 
+                AND (
+                    v.folio LIKE %s OR 
+                    u.nombre LIKE %s OR 
+                    u.apellido LIKE %s
+                )
+            """
+            search_param = f"%{search}%"
+            params.extend([search_param] * 3)
+        
+        # Consulta para total de registros
+        count_query = f"SELECT COUNT(*) as total FROM ({base_query}) as subquery"
+        total_result = query(count_query, tuple(params))
+        total_ventas = total_result['total']
+        
+        # Consulta con paginación
+        paginated_query = base_query + """
+            ORDER BY v.fecha_creacion DESC
+            LIMIT %s OFFSET %s
+        """
+        params.extend([per_page, offset])
+        
+        # Obtener ventas
+        ventas = query(paginated_query, tuple(params), fetchall=True)
+        
+        return jsonify({
+            "status": True, 
+            "ventas": ventas,
+            "total": total_ventas,
+            "page": page,
+            "per_page": per_page
+        }), 200
+    
+    except Exception as e:
+        return jsonify({
+            "status": False, 
+            "message": str(e)
+        }), 500
+        
+        
+@venta_bp.route('/panel/<uuid>', methods=['GET'])
+@token_required
+def detalle_venta(user_id, uuid):
+   access = get_user_access(user_id)
+   
+   if access != "admin":
+       return jsonify({"error": "No tiene permisos para realizar esta acción"}), 403
+
+   try:
+       # Obtener detalles de la venta con información del cliente y métodos de pago
+       sql_venta = """
+           SELECT 
+               v.uuid, 
+               v.fecha_creacion, 
+               v.folio, 
+               v.cliente_id, 
+               CONCAT(u.nombre, ' ', u.apellido) AS cliente_nombre, 
+               v.productos, 
+               v.total, 
+               v.estado,
+               v.metodos_pago
+           FROM ventas v
+           JOIN usuarios u ON v.cliente_id = u.id
+           WHERE v.uuid = %s
+       """
+       venta = query(sql_venta, (uuid,))
+
+       if not venta:
+           return jsonify({"status": False, "message": "Venta no encontrada"}), 404
+
+       # Parsear métodos de pago de JSON a lista de Python
+       metodos_pago = json.loads(venta['metodos_pago']) if venta['metodos_pago'] else []
+
+       metodos_pago.sort(key=lambda x: x['fecha'])
+
+       # Actualizar el diccionario de venta con métodos de pago filtrados
+    
+       return jsonify({
+           "status": True, 
+           "venta": venta
+       }), 200
+   
+   except Exception as e:
+       return jsonify({"status": False, "message": str(e)}), 500
+
+@venta_bp.route('/panel/abonar/<uuid>', methods=['POST'])
+@token_required
+def abonar_venta(user_id, uuid):
+    access = get_user_access(user_id)
+    
+    if access != "admin":
+        return jsonify({"error": "No tiene permisos para realizar esta acción"}), 403
+
+    try:
+        data = request.json
+        monto = float(data.get('monto', 0))
+        metodo_pago = data.get('metodo_pago', '')
+
+        if not monto or not metodo_pago:
+            return jsonify({"status": False, "message": "Monto y método de pago son requeridos"}), 400
+
+        # Obtener detalles de la venta actual
+        sql_venta = "SELECT total, estado FROM ventas WHERE uuid = %s"
+        venta = query(sql_venta, (uuid,))
+
+        if not venta or venta['estado'] != 0:
+            return jsonify({"status": False, "message": "Venta no encontrada o ya completada"}), 400
+
+        # Registrar el abono
+        sql_abono = """
+            UPDATE ventas 
+            SET metodos_pago = JSON_ARRAY_APPEND(
+                COALESCE(metodos_pago, JSON_ARRAY()), 
+                '$', 
+                JSON_OBJECT(
+                    'fecha', NOW(), 
+                    'metodo_pago', %s, 
+                    'monto', %s
+                )
+            )
+            WHERE uuid = %s
+        """
+        query(sql_abono, (metodo_pago, monto, uuid), commit=True)
+
+        # Obtener los abonos actuales para calcular el total
+        sql_venta = """
+           SELECT 
+               v.uuid, 
+               v.fecha_creacion, 
+               v.folio, 
+               v.cliente_id, 
+               CONCAT(u.nombre, ' ', u.apellido) AS cliente_nombre, 
+               v.productos, 
+               v.total, 
+               v.estado,
+               v.metodos_pago
+           FROM ventas v
+           JOIN usuarios u ON v.cliente_id = u.id
+           WHERE v.uuid = %s
+       """
+        updated_venta = query(sql_venta, (uuid,))
+
+        # Verificar si metodos_pago está vacío o no
+        metodos_pago = updated_venta['metodos_pago']
+        metodos_pago = json.loads(metodos_pago) if metodos_pago else []  # Parsear solo si no está vacío
+
+        # Ordenar los abonos por fecha, si es necesario
+        metodos_pago.sort(key=lambda x: x['fecha'])
+
+        # Calcular el total de abonos
+        total_abonos = sum(abono['monto'] for abono in metodos_pago)
+
+        # Si el total de abonos es igual o mayor que el total de la venta, se marca como completada
+        if total_abonos >= updated_venta['total']:
+            query("UPDATE ventas SET estado = 1 WHERE uuid = %s", (uuid,), commit=True)
+
+        return jsonify({
+            "status": True, 
+            "message": "Abono registrado correctamente",
+            "venta": updated_venta
+        }), 200
+        
+    except DatabaseErrorException as e:
+        return jsonify({"status": False, "message": str(e.message)}), 500
+    
+    except Exception as e:
+        return jsonify({"status": False, "message": str(e)}), 500
+
+@venta_bp.route('/panel/cancelar-venta/<uuid>', methods=['PUT'])
+@token_required
+def cancelar_venta(user_id, uuid):
+    access = get_user_access(user_id)
+    
+    if access != "admin":
+        return jsonify({"error": "No tiene permisos para realizar esta acción"}), 403
+
+    try:
+        # Obtener los detalles de la venta
+        sql_venta = "SELECT estado, metodos_pago, productos FROM ventas WHERE uuid = %s"
+        venta = query(sql_venta, (uuid,))
+
+        if not venta:
+            return jsonify({"status": False, "message": "Venta no encontrada"}), 404
+
+        # Verificar si la venta ya está completada o cancelada
+        if venta['estado'] in [1, 2]:  # Estado 1 es "completada", 2 es "cancelada"
+            return jsonify({"status": False, "message": "Venta ya está completada o cancelada"}), 400
+
+        # Regresar las unidades de los productos al inventario
+        productos = venta['productos']  # Suponiendo que 'productos' es un JSON con la lista de productos vendidos
+        productos = json.loads(productos)  # Convertimos el JSON a lista de productos
+
+        for producto in productos:
+            producto_id = producto['uuid']
+            cantidad_vendida = producto['cantidad']
+
+            # Actualizar el stock en la base de datos
+            sql_actualizar_stock = """
+                UPDATE productos
+                SET cantidad = cantidad + %s
+                WHERE uuid = %s
+            """
+            query(sql_actualizar_stock, (cantidad_vendida, producto_id), commit=True)
+
+        # Actualizar el estado de la venta a "cancelada" (estado = 2)
+        sql_cancelar = """
+            UPDATE ventas 
+            SET estado = 2
+            WHERE uuid = %s
+        """
+        query(sql_cancelar, (uuid,), commit=True)
+
+        # Eliminar los abonos asociados si es necesario
+        sql_eliminar_abonos = """
+            UPDATE ventas 
+            SET metodos_pago = JSON_ARRAY()  -- Limpiar los métodos de pago
+            WHERE uuid = %s
+        """
+        query(sql_eliminar_abonos, (uuid,), commit=True)
+
+        # Obtener la venta actualizada
+        sql_venta = """
+           SELECT 
+               v.uuid, 
+               v.fecha_creacion, 
+               v.folio, 
+               v.cliente_id, 
+               CONCAT(u.nombre, ' ', u.apellido) AS cliente_nombre, 
+               v.productos, 
+               v.total, 
+               v.estado,
+               v.metodos_pago
+           FROM ventas v
+           JOIN usuarios u ON v.cliente_id = u.id
+           WHERE v.uuid = %s
+       """
+       
+        updated_venta = query(sql_venta, (uuid,))
+
+        return jsonify({
+                "status": True,
+                "message": "Venta cancelada correctamente, productos regresados al inventario",
+                "venta": updated_venta
+        }), 200
+        
+    except DatabaseErrorException as e:
+        return jsonify({"status": False, "message": str(e.message)}), 500
+    
+    except Exception as e:
+        return jsonify({"status": False, "message": str(e)}), 500
+
+
+@venta_bp.route('/panel/eliminar-pago/<uuid>', methods=['DELETE'])
+@token_required
+def eliminar_pago(user_id, uuid):
+    access = get_user_access(user_id)
+    
+    if access != "admin":
+        return jsonify({"error": "No tiene permisos para realizar esta acción"}), 403
+
+    try:
+        # Obtener datos de la solicitud
+        data = request.json
+        index_pago = data.get('index_pago')
+        
+        # Obtener la venta actual
+        sql_venta = "SELECT metodos_pago, total, estado FROM ventas WHERE uuid = %s"
+        venta = query(sql_venta, (uuid,))
+
+        if not venta:
+            return jsonify({"status": False, "message": "Venta no encontrada"}), 404
+
+        # Verificar que la venta no esté completada
+        if venta['estado'] != 0:
+            return jsonify({"status": False, "message": "No se pueden modificar pagos de una venta completada"}), 400
+
+        # Parsear métodos de pago
+        metodos_pago = json.loads(venta['metodos_pago']) if venta['metodos_pago'] else []
+
+        # Validar el índice del pago
+        if index_pago < 0 or index_pago >= len(metodos_pago):
+            return jsonify({"status": False, "message": "Índice de pago inválido"}), 400
+
+        # Eliminar el pago
+        del metodos_pago[index_pago]
+
+        # Actualizar la venta con los nuevos métodos de pago y total
+        sql_actualizar = """
+            UPDATE ventas 
+            SET metodos_pago = %s
+            WHERE uuid = %s
+        """
+        
+        query(sql_actualizar, (json.dumps(metodos_pago),  uuid), commit=True)
+
+        # Obtener la venta actualizada
+        updated_venta = query("SELECT * FROM ventas WHERE uuid = %s", (uuid,))
+
+        return jsonify({
+            "status": True, 
+            "message": "Pago eliminado correctamente",
+            "venta": updated_venta
+        }), 200
+    
+    except Exception as e:
+        return jsonify({
+            "status": False, 
+            "message": str(e)
+        }), 500
