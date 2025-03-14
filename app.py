@@ -14,6 +14,7 @@ from routes.inversionista import inversor_bp
 from routes.openai import openai_bp
 from routes.venta import venta_bp
 from routes.orden import orden_bp
+from routes.site import site_bp
 from routes.imagen import imagen_bp
 
 app = Flask(__name__)
@@ -33,6 +34,7 @@ app.register_blueprint(category_bp, url_prefix='/api/categoria')
 app.register_blueprint(inversor_bp, url_prefix='/api/inversionista')
 app.register_blueprint(venta_bp, url_prefix='/api/venta')
 app.register_blueprint(orden_bp, url_prefix='/api/orden')
+app.register_blueprint(site_bp, url_prefix='/api/site')
 app.register_blueprint(imagen_bp, url_prefix='/api/imagen')
 app.register_blueprint(openai_bp, url_prefix='/api/openai')
 
