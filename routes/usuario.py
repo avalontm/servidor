@@ -56,24 +56,49 @@ def listar_usuarios(user_id):
     except Exception as e:
         return jsonify({"status": False, "message": str(e)}), 500    
     
-# Ruta para registrar un nuevo usuario
+from flask import request, jsonify
+from flask import Blueprint
+
+user_bp = Blueprint('user', __name__)
+
 @user_bp.route('/registrar', methods=['POST'])
 def register():
     data = request.get_json()
-    
-    name = data.get('name')
-    last_name = data.get('last_name')
-    email = data.get('email')
-    password = data.get('password')
 
-    if not name or not last_name or not email or not password:
-        return jsonify({'status': False, "message": "Faltan parámetros"}), 400
+    # Validación de parámetros
+    required_fields = ['name', 'last_name', 'email', 'password']
+    missing_fields = [field for field in required_fields if not data.get(field)]
 
-    # Intentar crear el usuario
-    if create_user(email, password, name, last_name):
-        return jsonify({'status': True, "message": "Usuario creado exitosamente"}), 201
-    else:
-        return jsonify({'status': False, "message": "El nombre de usuario ya está en uso o hubo un error al crear el usuario"}), 409
+    if missing_fields:
+        return jsonify({
+            'status': False,
+            'message': f"Faltan los siguientes campos: {', '.join(missing_fields)}"
+        }), 400
+
+    name = data['name']
+    last_name = data['last_name']
+    email = data['email']
+    password = data['password']
+
+    try:
+        # Intentar crear el usuario
+        if create_user(email, password, name, last_name):
+            return jsonify({
+                'status': True,
+                'message': 'Usuario creado exitosamente.'
+            }), 201
+        else:
+            return jsonify({
+                'status': False,
+                'message': 'El correo electrónico ya está en uso.'
+            }), 409
+    except Exception as e:
+        # Para errores inesperados
+        return jsonify({
+            'status': False,
+            'message': 'Ocurrió un error al intentar crear el usuario.',
+            'error': str(e)
+        }), 500
 
 
 # Ruta para login y obtener el JWT

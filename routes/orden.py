@@ -2,7 +2,7 @@ import datetime
 import uuid
 from flask import Blueprint, json, request, jsonify
 from exeptions.DatabaseErrorException import DatabaseErrorException
-from json_utils import convertir_metodos_pago
+from utils.json_utils import convertir_metodos_pago
 from utils.jwt_utils import token_required
 from utils.db_utils import get_user_access, query
 from utils.app_config import APP_PUBLIC, APP_SITE
