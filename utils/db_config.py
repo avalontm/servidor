@@ -3,7 +3,7 @@ import mysql.connector
 
 # Configuración de la base de datos
 DB_CONFIG = {
-    'host': '192.168.100.7',
+    'host': '127.0.0.1',
     'user': 'avalontm',  # Cambia esto según tu configuración
     'password': '5mtcgder',  # Cambia esto según tu configuración
     'database': 'moshi'  # Cambia esto según tu base de datos
