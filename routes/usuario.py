@@ -56,11 +56,6 @@ def listar_usuarios(user_id):
     except Exception as e:
         return jsonify({"status": False, "message": str(e)}), 500    
     
-from flask import request, jsonify
-from flask import Blueprint
-
-user_bp = Blueprint('user', __name__)
-
 @user_bp.route('/registrar', methods=['POST'])
 def register():
     data = request.get_json()
@@ -265,7 +260,7 @@ def obtener_usuario(user_id, uuid):
         return jsonify({'status': False, "message": "No tiene permisos para realizar esta acción"}), 403
     
     sql = """
-        SELECT uuid, nombre, email, apellido, telefono, avatar, puntos
+        SELECT uuid, nombre, email, apellido, telefono, avatar, puntos, role 
         FROM usuarios 
         WHERE uuid = %s
     """
@@ -297,6 +292,7 @@ def editar_usuario(user_id, uuid):
     telefono = data.get("telefono")
     avatar = data.get("avatar")  # El avatar puede ser None o una cadena base64
     puntos = int(data.get("puntos", 0))  # Establecemos 0 como valor predeterminado si no se proporciona
+    role = int(data.get("role", 0))
     contrasena = data.get("contrasena", None)  # Si se quiere cambiar la contraseña
 
     # Validación de campos obligatorios
@@ -329,18 +325,18 @@ def editar_usuario(user_id, uuid):
         contrasena_cifrada = generate_password_hash(contrasena)
         sql = """
             UPDATE usuarios 
-            SET nombre = %s, apellido = %s, telefono = %s, avatar = %s, puntos = %s, contrasena = %s
+            SET nombre = %s, apellido = %s, telefono = %s, avatar = %s, puntos = %s, role = %s, contrasena = %s
             WHERE uuid = %s
         """
-        params = (nombre, apellido, telefono, avatar_url or None, puntos, contrasena_cifrada, uuid)
+        params = (nombre, apellido, telefono, avatar_url or None, puntos, role, contrasena_cifrada, uuid)
     else:
         # Si no se proporciona una nueva contraseña, actualizamos sin modificarla
         sql = """
             UPDATE usuarios 
-            SET nombre = %s, apellido = %s, telefono = %s, avatar = %s, puntos = %s
+            SET nombre = %s, apellido = %s, telefono = %s, avatar = %s, puntos = %s, role = %s 
             WHERE uuid = %s
         """
-        params = (nombre, apellido, telefono, avatar_url or None, puntos, uuid)
+        params = (nombre, apellido, telefono, avatar_url or None, puntos, role, uuid)
 
     try:
         # Ejecutar la consulta para actualizar los datos
