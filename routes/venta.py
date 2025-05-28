@@ -15,41 +15,70 @@ venta_bp = Blueprint('venta', __name__)
 @token_required
 def ordenes(user_id):
     try:
+        # Obtener el UUID del usuario desde la tabla usuarios
+        sql_uuid = "SELECT uuid FROM usuarios WHERE id = %s"
+        resultado = query(sql_uuid, (user_id,))
+        if not resultado:
+            return jsonify({"status": False, "message": "Usuario no encontrado"}), 404
+
+        user_uuid = resultado["uuid"] if isinstance(resultado, dict) else resultado[0]["uuid"]
+
+        # Obtener las órdenes con información de si ya tienen comentario
         sql = """
-            SELECT o.uuid, o.fecha_orden, o.numero_orden, o.tipo_entrega, o.direccion_id, o.productos, o.total, o.estado
+            SELECT o.uuid, o.fecha_orden, o.numero_orden, o.tipo_entrega, 
+                   o.direccion_id, o.productos, o.total, o.estado,
+                   CASE WHEN c.uuid IS NOT NULL THEN TRUE ELSE FALSE END AS review
             FROM ordenes o
+            LEFT JOIN comentarios c ON c.uuid = o.uuid AND c.user_id = %s
             WHERE o.usuario_id = %s
             ORDER BY o.fecha_orden DESC
         """
-        ordenes = query(sql, (user_id,), fetchall=True)
-        return jsonify({"status": True, "ordenes": ordenes}), 200
-    except Exception as e:
-        return jsonify({"status": False, "message": str(e)}), 500    
+        ordenes = query(sql, (user_uuid, user_id), fetchall=True)
 
-#Ruta para mostrar los detalles de una orden
+        # Convertir review a booleano Python (por si viene como int de MySQL)
+        for orden in ordenes:
+            orden["review"] = bool(orden.get("review"))
+
+        return jsonify({"status": True, "ordenes": ordenes}), 200
+
+    except Exception as e:
+        return jsonify({"status": False, "message": str(e)}), 500
+
+
+# Ruta para mostrar los detalles de una orden
 @venta_bp.route('/orden/<uuid>', methods=['GET'])
 @token_required
 def orden(uuid, user_id):
     try:
-        # Obtener la orden
+        # Obtener el UUID del usuario desde la tabla usuarios
+        sql_uuid = "SELECT uuid FROM usuarios WHERE id = %s"
+        resultado = query(sql_uuid, (user_id,))
+        if not resultado:
+            return jsonify({"status": False, "message": "Usuario no encontrado"}), 404
+
+        user_uuid = resultado["uuid"] if isinstance(resultado, dict) else resultado[0]["uuid"]
+
+        # Obtener la orden y verificar si ya tiene comentario del usuario
         sql_orden = """
             SELECT o.uuid, o.fecha_orden, o.numero_orden, o.tipo_entrega, o.direccion_id, 
-                   o.productos, o.total, o.estado
+                   o.productos, o.total, o.estado,
+                   CASE WHEN c.uuid IS NOT NULL THEN TRUE ELSE FALSE END AS review
             FROM ordenes o
+            LEFT JOIN comentarios c ON c.uuid = o.uuid AND c.user_id = %s
             WHERE o.numero_orden = %s AND o.usuario_id = %s
         """
-        orden = query(sql_orden, (uuid, user_id,))
-
-        if not orden:
+        resultado_orden = query(sql_orden, (user_uuid, uuid, user_id,))
+        if not resultado_orden:
             return jsonify({"status": False, "message": "Orden no encontrada"}), 404
 
-        productos_json = json.loads(orden["productos"]) if isinstance(orden["productos"], str) else orden["productos"]
+        # Asegurar que sea un dict
+        orden = resultado_orden if isinstance(resultado_orden, dict) else resultado_orden[0]
 
-        # Extraer los UUIDs de los productos
+        # Parsear productos
+        productos_json = json.loads(orden["productos"]) if isinstance(orden["productos"], str) else orden["productos"]
         uuids_productos = [p["uuid"] for p in productos_json]
 
         if uuids_productos:
-            # Consultar detalles de los productos en la base de datos
             sql_productos = f"""
                 SELECT uuid, nombre, precio, imagen 
                 FROM productos 
@@ -57,17 +86,19 @@ def orden(uuid, user_id):
             """
             productos_detalles = query(sql_productos, tuple(uuids_productos,), fetchall=True)
 
-            # Asociar cantidad de la orden con los productos obtenidos
             for producto in productos_detalles:
                 producto["cantidad"] = next(p["cantidad"] for p in productos_json if p["uuid"] == producto["uuid"])
 
             orden["productos"] = productos_detalles
 
+        # Convertir campo `review` a booleano real
+        orden["review"] = bool(orden.get("review"))
+
         return jsonify({"status": True, "orden": orden}), 200
-    except DatabaseErrorException as e:
-        return jsonify({"status": False, "message": str(e.message)}), 500
+
     except Exception as e:
-        return jsonify({"status": False, "message": str(e) }), 500
+        return jsonify({"status": False, "message": str(e)}), 500
+
 
 
 # Ruta para registrar una nueva orden desde el carrito

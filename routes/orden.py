@@ -188,3 +188,48 @@ def modificar_estado(user_id, uuid):
         return jsonify({"status": False, "message": str(e.message)}), 500
     except Exception as e:
         return jsonify({"status": False, "message": str(e)}), 500
+
+
+# Ruta para agregar un comentario y calificación a una orden
+@orden_bp.route('/comentario', methods=['POST'])
+@token_required
+def agregar_comentario(user_id):
+    data = request.get_json()
+
+    if not data:
+        return jsonify({"error": "Datos no proporcionados"}), 400
+
+    pedido_uuid = data.get("pedido_uuid")
+    comentario = data.get("comentario", "").strip()
+    calificacion = data.get("calificacion")
+
+    # Validaciones básicas
+    if not pedido_uuid:
+        return jsonify({"error": "UUID del pedido no proporcionado"}), 400
+    if not isinstance(calificacion, int) or calificacion < 1 or calificacion > 5:
+        return jsonify({"error": "Calificación inválida (debe estar entre 1 y 5)"}), 400
+
+    try:
+         # Obtener el UUID del usuario desde la tabla usuarios
+        sql_uuid = "SELECT uuid FROM usuarios WHERE id = %s"
+        resultado = query(sql_uuid, (user_id,))
+        if not resultado:
+            return jsonify({"status": False, "message": "Usuario no encontrado"}), 404
+
+        user_uuid = resultado["uuid"] if isinstance(resultado, dict) else resultado[0]["uuid"]
+        
+        sql = """
+            INSERT INTO comentarios (uuid, user_id, comentario, calificacion, fecha_creacion)
+            VALUES (%s, %s, %s, %s, NOW())
+        """
+        cursor = query(sql, (pedido_uuid, user_uuid, comentario, calificacion), commit=True, return_cursor=True)
+
+        if not cursor:
+            return jsonify({"status": False, "message": "Error al guardar el comentario"}), 500
+
+        return jsonify({"status": True, "message": "Comentario guardado exitosamente"}), 200
+
+    except DatabaseErrorException as e:
+        return jsonify({"status": False, "message": str(e.message)}), 500
+    except Exception as e:
+        return jsonify({"status": False, "message": str(e)}), 500

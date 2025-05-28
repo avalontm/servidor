@@ -16,6 +16,7 @@ from routes.venta import venta_bp
 from routes.orden import orden_bp
 from routes.site import site_bp
 from routes.imagen import imagen_bp
+from routes.comentario import comentario_bp
 
 app = Flask(__name__)
 
@@ -37,6 +38,7 @@ app.register_blueprint(orden_bp, url_prefix='/api/orden')
 app.register_blueprint(site_bp, url_prefix='/api/site')
 app.register_blueprint(imagen_bp, url_prefix='/api/imagen')
 app.register_blueprint(openai_bp, url_prefix='/api/openai')
+app.register_blueprint(comentario_bp, url_prefix='/api/comentario')
 
 # Aplica CORS a todas las rutas
 CORS(app)
