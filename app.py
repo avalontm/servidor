@@ -1,10 +1,13 @@
 # app.py
+import eventlet
+eventlet.monkey_patch()
 import argparse
 from flask import Flask
 from flask_cors import CORS
 from utils.db_utils import verify_db_connection
 import sys
 from utils.socket_manager import socketio  # Importa socketio
+
 
 # Importar los blueprints
 from routes.usuario import user_bp
@@ -43,7 +46,7 @@ app.register_blueprint(comentario_bp, url_prefix='/api/comentario')
 # Aplica CORS a todas las rutas
 CORS(app)
 # Configurar WebSockets con Flask
-socketio.init_app(app)
+socketio.init_app(app, cors_allowed_origins="*", async_mode='eventlet')
 
 def main():
     parser = argparse.ArgumentParser(description='Configurar parámetros del servidor Flask.')
@@ -54,8 +57,10 @@ def main():
     
     args = parser.parse_args()
     ssl_context = (args.ssl_cert, args.ssl_key) if args.ssl_cert and args.ssl_key else None
-
-    app.run(debug=True, host=args.host, port=args.port, ssl_context=ssl_context)
-
+    # Iniciar el servidor Flask con SocketIO
+    print(f"Iniciando el servidor en {args.host}:{args.port} con SSL: {ssl_context is not None}")
+    #app.run(debug=True, host=args.host, port=args.port, ssl_context=ssl_context)
+    socketio.run(app, host=args.host, port=args.port)
+    
 if __name__ == '__main__':
     main()

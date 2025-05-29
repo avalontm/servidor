@@ -4,3 +4,4 @@ pyjwt==2.10.1
 mysql-connector-python
 openai
 flask-socketio
+eventlet
