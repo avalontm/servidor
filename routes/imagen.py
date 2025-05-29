@@ -5,7 +5,7 @@ import os
 from flask import Blueprint, json, request, jsonify
 from werkzeug.utils import secure_filename
 from exeptions.DatabaseErrorException import DatabaseErrorException
-from utils.img_utils import procesar_imagen_destino
+from utils.img_utils import procesar_banner
 from utils.jwt_utils import token_required
 from utils.db_utils import get_user_access, query
 from utils.app_config import APP_PUBLIC, APP_SITE
@@ -83,7 +83,7 @@ def agregar_carousel_dashboard(user_id):
             uuid_str = str(uuid_module.uuid4())
             imagen_filename = f"{uuid_str}"
 
-            imagen_url = procesar_imagen_destino(imagen, os.path.join(APP_PUBLIC, "/assets/banners"), imagen_filename)
+            imagen_url = procesar_banner(imagen, imagen_filename)
             if imagen_url == None:
                 return jsonify({"status": False, "message": "No se pudo guardar el banner"}), 500
 
