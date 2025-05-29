@@ -2,6 +2,7 @@ import os
 import tempfile
 import time
 import imghdr
+import uuid as uuid_module
 import subprocess
 from werkzeug.utils import secure_filename
 from flask import jsonify
@@ -180,3 +181,61 @@ def convertir_base64_a_archivo(base64_string):
     except Exception as e:
         print(f"Error al convertir base64 a archivo: {str(e)}")
         return None
+    
+def procesar_imagen_destino(foto_input, carpeta_destino, nombre_archivo): 
+    """
+    Procesa una imagen: valida su tipo, la convierte a JPG y la guarda con un nombre personalizado.
+    Puede manejar tanto objetos FileStorage como rutas de archivo.
+
+    :param foto_input: Objeto FileStorage de Flask o ruta de archivo de la imagen
+    :param carpeta_destino: Carpeta absoluta donde se guardará la imagen
+    :param nombre_archivo: Nombre base del archivo sin extensión (ej: "carousel_001")
+    :return: Ruta relativa accesible públicamente si tiene éxito, None en caso de error
+    """
+    temp_path = None
+    try:
+        from werkzeug.datastructures import FileStorage
+        os.makedirs(carpeta_destino, exist_ok=True)
+
+        if isinstance(foto_input, FileStorage):
+            if not allowed_file(foto_input.filename):
+                print("Archivo no permitido")
+                return None
+            
+            # Obtener extensión original
+            ext = foto_input.filename.rsplit('.', 1)[1].lower() if '.' in foto_input.filename else 'jpg'
+            temp_filename = f"temp_{uuid_module.uuid4().hex}.{ext}"
+            temp_path = os.path.join("/tmp", temp_filename)
+            foto_input.save(temp_path)
+        else:
+            temp_path = foto_input
+
+        # Validar tipo de imagen
+        actual_file_type = imghdr.what(temp_path)
+        if actual_file_type not in ALLOWED_EXTENSIONS:
+            if os.path.exists(temp_path):
+                os.remove(temp_path)
+                print("Tipo de imagen no permitido")
+            return None
+
+        # Crear ruta final como JPG
+        jpg_filename = f"{nombre_archivo}.jpg"
+        jpg_path = os.path.join(carpeta_destino, jpg_filename)
+
+        # Convertir a JPG con ImageMagick
+        subprocess.run(['convert', temp_path, jpg_path], check=True)
+
+        if os.path.exists(temp_path):
+            os.remove(temp_path)
+
+        # Ruta relativa para frontend
+        timestamp = int(time.time())
+        url_relativa = jpg_path.replace(APP_PUBLIC, "").replace("\\", "/")
+        print(f"Imagen procesada y guardada en: {url_relativa}")
+        # Retornar la URL relativa con timestamp
+        return f"{url_relativa}?{timestamp}"
+
+    except Exception as e:
+        print(f"Error al procesar imagen: {e}")
+        return None
+

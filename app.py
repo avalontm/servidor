@@ -44,7 +44,8 @@ app.register_blueprint(openai_bp, url_prefix='/api/openai')
 app.register_blueprint(comentario_bp, url_prefix='/api/comentario')
 
 # Aplica CORS a todas las rutas
-CORS(app)
+CORS(app, resources={r"/api/*": {"origins": "*"}}, supports_credentials=True)
+
 # Configurar WebSockets con Flask
 socketio.init_app(app, cors_allowed_origins="*", async_mode='eventlet')
 
